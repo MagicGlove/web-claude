@@ -1,0 +1,7 @@
+node_modules/
+users.json
+server.log
+.jwt_secret
+.server.pid
+.server.conf
+*.log

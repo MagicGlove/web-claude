@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code Web — 登录</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100dvh;
+      background: #0d1117;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #e6edf3;
+      padding: 20px;
+    }
+
+    .box {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .logo h1 { font-size: 1.5rem; color: #58a6ff; font-weight: 700; letter-spacing: -0.5px; }
+    .logo p  { color: #8b949e; font-size: 0.9rem; margin-top: 6px; }
+
+    label { display: block; font-size: 0.83rem; color: #8b949e; margin-bottom: 6px; font-weight: 500; }
+
+    input[type=text], input[type=password] {
+      width: 100%;
+      padding: 10px 14px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e6edf3;
+      font-size: 1rem;
+      transition: border-color .15s;
+      margin-bottom: 16px;
+    }
+    input:focus { outline: none; border-color: #58a6ff; }
+
+    .btn {
+      width: 100%;
+      padding: 11px;
+      background: #238636;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+      margin-top: 4px;
+    }
+    .btn:hover  { background: #2ea043; }
+    .btn:active { background: #1a7f37; }
+    .btn:disabled { background: #21262d; color: #8b949e; cursor: not-allowed; }
+
+    .error {
+      display: none;
+      background: #2d0f0f;
+      border: 1px solid #f85149;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 0.875rem;
+      color: #f85149;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="logo">
+      <h1>Claude Code Web</h1>
+      <p>请登录以继续</p>
+    </div>
+    <div class="error" id="err"></div>
+    <label for="u">用户名</label>
+    <input type="text" id="u" autocomplete="username" autofocus>
+    <label for="p">密码</label>
+    <input type="password" id="p" autocomplete="current-password">
+    <button class="btn" id="btn">登录</button>
+  </div>
+
+  <script>
+    // 已有有效 token 则直接跳转
+    if (localStorage.getItem('cc_token')) location.href = '/chat.html';
+
+    const uEl  = document.getElementById('u');
+    const pEl  = document.getElementById('p');
+    const btn  = document.getElementById('btn');
+    const err  = document.getElementById('err');
+
+    async function login() {
+      const username = uEl.value.trim();
+      const password = pEl.value;
+      if (!username || !password) { showErr('请填写用户名和密码'); return; }
+
+      btn.disabled    = true;
+      btn.textContent = '登录中...';
+      err.style.display = 'none';
+
+      try {
+        const res  = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) { showErr(data.error || '登录失败'); return; }
+        localStorage.setItem('cc_token', data.token);
+        location.href = '/chat.html';
+      } catch {
+        showErr('网络错误，请检查服务器是否运行');
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = '登录';
+      }
+    }
+
+    function showErr(msg) { err.textContent = msg; err.style.display = 'block'; }
+
+    btn.addEventListener('click', login);
+    [uEl, pEl].forEach(el => el.addEventListener('keydown', e => e.key === 'Enter' && login()));
+  </script>
+</body>
+</html>
