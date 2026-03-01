@@ -98,21 +98,21 @@
     #status-text { font-size: 0.82rem; color: var(--text-dim); white-space: nowrap; }
 
     .hbtn {
-      padding: 5px 10px;
+      padding: 5px 11px;
       background: var(--bg3);
       border: 1px solid var(--border);
       border-radius: 6px;
       color: var(--text);
       font-size: 0.82rem;
       cursor: pointer;
-      transition: background .15s;
+      transition: background .12s, border-color .12s;
       white-space: nowrap;
     }
-    .hbtn:hover { background: #2a2f45; }
-    .hbtn.danger { color: var(--danger); border-color: var(--danger); }
-    .hbtn.danger:hover { background: #2d0f18; }
+    .hbtn:hover  { background: var(--bg2); border-color: var(--accent); }
+    .hbtn.danger { border-color: var(--danger); color: var(--danger); }
+    .hbtn.danger:hover { background: rgba(247,118,142,.12); }
 
-    /* ── Views ───────────────────────────────────────────────────────────────── */
+    /* ── Chat View ──────────────────────────────────────────────────────────── */
     #view-chat {
       flex: 1;
       display: flex;
@@ -125,18 +125,10 @@
       overflow: hidden;
     }
 
-    /* ── Terminal ────────────────────────────────────────────────────────────── */
     #terminal-wrap {
       flex: 1;
-      overflow: hidden;
+      min-height: 0;
       background: var(--bg3);
-      padding: 6px 8px;
-    }
-    #terminal-wrap .xterm {
-      height: 100%;
-    }
-    #terminal-wrap .xterm-viewport {
-      overflow-y: auto !important;
     }
 
     /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -144,39 +136,33 @@
       flex: none;
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      padding: 8px 12px 4px;
+      gap: 4px;
+      padding: 6px 10px;
       background: var(--bg2);
       border-top: 1px solid var(--border);
     }
     .tbtn {
-      padding: 6px 12px;
+      padding: 5px 10px;
       background: var(--bg3);
       border: 1px solid var(--border);
       border-radius: 6px;
       color: var(--text);
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       cursor: pointer;
-      transition: background .12s, border-color .12s;
-      min-height: 34px;
-      min-width: 44px;
-      font-family: var(--font-mono);
-      user-select: none;
+      transition: background .12s;
+      white-space: nowrap;
     }
-    .tbtn:hover  { background: #2a2f45; border-color: var(--accent); }
-    .tbtn:active { background: #1e2333; transform: scale(.96); }
-    .tbtn.red    { color: var(--danger); }
-    .tbtn.red:hover { border-color: var(--danger); background: #2d0f18; }
-    .tbtn.yellow { color: var(--warn); }
+    .tbtn:hover  { background: #2e3354; }
+    .tbtn.yellow { border-color: var(--warn);    color: var(--warn); }
+    .tbtn.red    { border-color: var(--danger);  color: var(--danger); }
 
-    /* ── Input area ──────────────────────────────────────────────────────────── */
+    /* ── Input area ─────────────────────────────────────────────────────────── */
     #input-area {
       flex: none;
       display: flex;
       align-items: flex-end;
       gap: 8px;
-      padding: 8px 12px 12px;
-      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+      padding: 8px 10px;
       background: var(--bg2);
       border-top: 1px solid var(--border);
     }
@@ -184,16 +170,15 @@
       flex: 1;
       min-height: 40px;
       max-height: 160px;
-      padding: 10px 14px;
-      background: var(--bg);
+      background: var(--bg3);
       border: 1px solid var(--border);
       border-radius: 8px;
       color: var(--text);
       font-size: 0.95rem;
-      font-family: inherit;
+      padding: 10px 12px;
       resize: none;
+      font-family: inherit;
       line-height: 1.45;
-      transition: border-color .15s;
       overflow-y: auto;
     }
     #input:focus { outline: none; border-color: var(--accent); }
@@ -276,18 +261,29 @@
     }
     .file-entry:hover { background: var(--bg3); }
     .file-entry.active { background: #2a3566; border: 1px solid #414868; }
+    .file-entry.dragging-over { background: rgba(122,162,247,.15); border: 1px dashed var(--accent); }
     .file-entry .icon { flex: none; width: 18px; text-align: center; font-size: 0.88rem; }
     .file-entry.dir  .name { color: var(--accent); }
     .file-entry.file .name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    #file-content-panel {
+    /* ── File content area & panes ───────────────────────────────────────────── */
+    #file-content-area {
       flex: 1;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+      min-width: 0;
+    }
+
+    .pane {
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      flex: 1;
+      min-width: 0;
     }
 
-    #file-content-header {
+    .pane-header {
       flex: none;
       display: flex;
       align-items: center;
@@ -297,7 +293,13 @@
       background: var(--bg2);
       min-height: 46px;
     }
-    #file-content-header .file-title {
+    .pane-view-hd, .pane-edit-hd {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+    .pane-header .file-title {
       flex: 1;
       font-family: var(--font-mono);
       font-size: 0.88rem;
@@ -306,7 +308,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    #file-content-header .file-type-badge {
+    .pane-header .file-type-badge {
       font-size: 0.72rem;
       padding: 2px 8px;
       border-radius: 10px;
@@ -315,7 +317,7 @@
       color: var(--text-dim);
     }
 
-    #file-content-body {
+    .pane-body {
       flex: 1;
       overflow: auto;
       padding: 0;
@@ -323,8 +325,34 @@
       flex-direction: column;
       min-height: 0;
     }
-    #file-content-body::-webkit-scrollbar { width: 6px; }
-    #file-content-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .pane-body::-webkit-scrollbar { width: 6px; }
+    .pane-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Pane divider (between left and right pane) ──────────────────────────── */
+    #pane-divider {
+      width: 5px;
+      flex: none;
+      cursor: col-resize;
+      background: var(--border);
+      opacity: 0.4;
+      transition: opacity .15s, background .15s;
+    }
+    #pane-divider:hover,
+    #pane-divider.dragging { opacity: 1; background: var(--accent); }
+
+    /* ── Drop hint overlay ───────────────────────────────────────────────────── */
+    .drop-hint {
+      position: absolute;
+      pointer-events: none;
+      border: 2px dashed var(--accent);
+      background: rgba(122, 162, 247, 0.08);
+      border-radius: 8px;
+      top: 8px; bottom: 8px;
+      z-index: 20;
+      display: none;
+    }
+    .drop-hint.left  { display: block; left: 8px;  right: 50%; }
+    .drop-hint.right { display: block; left: 50%;  right: 8px; }
 
     .file-placeholder {
       display: flex;
@@ -413,7 +441,7 @@
     .md-view a { color: var(--accent); text-decoration: none; }
     .md-view a:hover { text-decoration: underline; }
 
-    /* ── Resize handle ───────────────────────────────────────────────────────── */
+    /* ── Resize handle (tree ↔ content) ─────────────────────────────────────── */
     #resize-handle {
       width: 6px;
       flex: none;
@@ -491,7 +519,7 @@
     }
 
     /* ── 在线编辑器 ──────────────────────────────────────────────────────────── */
-    #edit-textarea {
+    .edit-textarea {
       flex: 1;
       box-sizing: border-box;
       width: 100%; min-height: 0;
@@ -508,15 +536,18 @@
     .save-status.saved  { color: var(--success); }
     .save-status.error  { color: var(--danger); }
 
-    /* ── Agent 写入警告条 ────────────────────────────────────────────────────── */
-    #file-change-banner {
+    /* ── Agent 写入警告条（per-pane） ────────────────────────────────────────── */
+    .pane-banner {
       display: none; align-items: center; gap: 10px;
       padding: 8px 16px;
       background: #3d2f00; border-bottom: 1px solid var(--warn);
       color: var(--warn); font-size: 0.85rem; flex: none;
     }
-    #file-change-banner.visible { display: flex; }
-    #file-change-banner .banner-btns { display: flex; gap: 6px; margin-left: auto; }
+    .pane-banner.visible { display: flex; }
+    .pane-banner .banner-btns { display: flex; gap: 6px; margin-left: auto; }
+
+    /* ── 右侧 pane 边框 ──────────────────────────────────────────────────────── */
+    #pane-right { border-left: 1px solid var(--border); }
   </style>
 </head>
 <body>
@@ -580,41 +611,75 @@
       <div id="file-list"></div>
     </div>
 
-    <!-- Drag handle -->
+    <!-- Drag handle: tree ↔ content -->
     <div id="resize-handle"></div>
 
-    <!-- Right: file content -->
-    <div id="file-content-panel">
-      <div id="file-content-header" style="display:none">
-        <!-- 只读模式 header -->
-        <div id="header-view-mode" style="display:flex;align-items:center;gap:10px;width:100%">
-          <span class="file-title" id="file-open-title"></span>
-          <span class="file-type-badge" id="file-type-badge"></span>
-          <button class="hbtn" id="edit-btn"        style="display:none" title="编辑文件">编辑</button>
-          <button class="hbtn" id="insert-path-btn" style="display:none" title="将路径插入聊天输入框">插入路径</button>
-        </div>
-        <!-- 编辑模式 header -->
-        <div id="header-edit-mode" style="display:none;align-items:center;gap:10px;width:100%">
-          <span class="file-title" id="edit-file-title"></span>
-          <span class="save-status" id="save-status-label"></span>
-          <div style="flex:1"></div>
-          <button class="hbtn" id="save-btn">保存</button>
-          <button class="hbtn danger" id="cancel-edit-btn">取消</button>
-        </div>
-      </div>
-      <!-- Agent 写入警告条 -->
-      <div id="file-change-banner">
-        <span id="banner-msg">⚠ Claude 已修改此文件</span>
-        <div class="banner-btns">
-          <button class="hbtn" id="banner-reload-btn">重新加载</button>
-          <button class="hbtn danger" id="banner-force-save-btn">强制覆盖保存</button>
-        </div>
-      </div>
-      <div id="file-content-body"></div>
-    </div>
+    <!-- Content area with two panes -->
+    <div id="file-content-area">
 
-  </div>
-</div>
+      <!-- Left pane -->
+      <div class="pane" id="pane-left">
+        <div class="pane-header" style="display:none">
+          <div class="pane-view-hd">
+            <span class="file-title pane-title"></span>
+            <span class="file-type-badge pane-badge"></span>
+            <button class="hbtn pane-edit-btn" style="display:none">编辑</button>
+            <button class="hbtn pane-insert-btn" style="display:none">插入路径</button>
+          </div>
+          <div class="pane-edit-hd" style="display:none">
+            <span class="file-title pane-edit-title"></span>
+            <span class="save-status pane-save-status"></span>
+            <div style="flex:1"></div>
+            <button class="hbtn pane-save-btn">保存</button>
+            <button class="hbtn danger pane-cancel-btn">取消</button>
+          </div>
+        </div>
+        <div class="pane-banner">
+          <span class="pane-banner-msg"></span>
+          <div class="banner-btns">
+            <button class="hbtn pane-banner-reload">重新加载</button>
+            <button class="hbtn danger pane-banner-force">强制覆盖保存</button>
+          </div>
+        </div>
+        <div class="pane-body"></div>
+      </div>
+
+      <!-- Pane divider (between left and right pane) -->
+      <div id="pane-divider" style="display:none"></div>
+
+      <!-- Right pane -->
+      <div class="pane" id="pane-right" style="display:none">
+        <div class="pane-header" style="display:none">
+          <div class="pane-view-hd">
+            <span class="file-title pane-title"></span>
+            <span class="file-type-badge pane-badge"></span>
+            <button class="hbtn pane-edit-btn" style="display:none">编辑</button>
+            <button class="hbtn pane-insert-btn" style="display:none">插入路径</button>
+            <button class="hbtn pane-close-btn" title="关闭右侧">✕</button>
+          </div>
+          <div class="pane-edit-hd" style="display:none">
+            <span class="file-title pane-edit-title"></span>
+            <span class="save-status pane-save-status"></span>
+            <div style="flex:1"></div>
+            <button class="hbtn pane-save-btn">保存</button>
+            <button class="hbtn danger pane-cancel-btn">取消</button>
+            <button class="hbtn pane-close-btn" title="关闭右侧">✕</button>
+          </div>
+        </div>
+        <div class="pane-banner">
+          <span class="pane-banner-msg"></span>
+          <div class="banner-btns">
+            <button class="hbtn pane-banner-reload">重新加载</button>
+            <button class="hbtn danger pane-banner-force">强制覆盖保存</button>
+          </div>
+        </div>
+        <div class="pane-body"></div>
+      </div>
+
+    </div><!-- /#file-content-area -->
+
+  </div><!-- /#file-split -->
+</div><!-- /#view-files -->
 
 <script>
 // ── xterm.js Terminal ─────────────────────────────────────────────────────────
@@ -661,17 +726,15 @@ term.open(document.getElementById('terminal-wrap'));
 fitAddon.fit();
 
 // ── 终端 Ctrl+C / Ctrl+V 处理 ─────────────────────────────────────────────────
-// Ctrl+C：有选中文字时复制，无选中时发 SIGINT（中断信号）
-// Ctrl+V：将剪贴板内容粘贴到终端输入流
 term.attachCustomKeyEventHandler(evt => {
   if (evt.type !== 'keydown') return true;
 
   if (evt.ctrlKey && evt.key === 'c') {
     if (term.hasSelection()) {
       navigator.clipboard.writeText(term.getSelection()).catch(() => {});
-      return false;   // 阻止 xterm 将 Ctrl+C 发给 PTY
+      return false;
     }
-    return true;      // 无选中 → 正常发 SIGINT
+    return true;
   }
 
   if (evt.ctrlKey && evt.key === 'v') {
@@ -715,7 +778,7 @@ document.getElementById('font-dec').addEventListener('click', () => {
 document.getElementById('font-size-label').textContent = FONT_SIZES[fontIdx] + 'px';
 document.documentElement.style.setProperty('--file-font-size', FONT_SIZES[fontIdx] + 'px');
 
-// ── Enter 模式：true = Enter发送/Shift+Enter换行，false = Enter换行/Ctrl+Enter发送 ──
+// ── Enter 模式 ────────────────────────────────────────────────────────────────
 let enterSend = localStorage.getItem('cc_enter_send') !== 'false';
 
 function applyEnterMode() {
@@ -773,7 +836,7 @@ let ws             = null;
 let reconnectDelay = 1000;
 let connected      = false;
 let fileLoaded     = false;
-let currentFilePath = null;
+let currentFilePath = null;  // last opened file path, for insert-path
 
 const inputEl    = document.getElementById('input');
 const sendBtn    = document.getElementById('send-btn');
@@ -812,10 +875,12 @@ function setStatus(state, text) {
       setStatus('ok', `已连接  ${msg.username}`);
       sendBtn.disabled = false;
       sendResize();
-      // 断线重连后恢复文件监听
-      if (editState.active && editState.filePath) {
-        ws.send(JSON.stringify({ type: 'watch_file', path: editState.filePath }));
-      }
+      // 断线重连后恢复所有 pane 的文件监听
+      [paneLeft, paneRight].forEach(pane => {
+        if (pane.edit.active && pane.edit.filePath) {
+          ws.send(JSON.stringify({ type: 'watch_file', path: pane.edit.filePath }));
+        }
+      });
     }
     else if (msg.type === 'output') {
       term.write(msg.data);
@@ -833,9 +898,11 @@ function setStatus(state, text) {
       }
     }
     else if (msg.type === 'file_changed') {
-      if (editState.active && msg.path === editState.filePath) {
-        showBanner('Claude 已修改此文件，建议保存后重新加载');
-      }
+      [paneLeft, paneRight].forEach(pane => {
+        if (pane.edit.active && msg.path === pane.edit.filePath) {
+          showBanner(pane, 'Claude 已修改此文件，建议保存后重新加载');
+        }
+      });
     }
   };
 
@@ -924,7 +991,7 @@ window.addEventListener('resize', () => {
   sendResize();
 });
 
-// ── Resize handle drag ────────────────────────────────────────────────────────
+// ── Resize handle drag (tree ↔ content) ──────────────────────────────────────
 
 const resizeHandle  = document.getElementById('resize-handle');
 const fileTreePanel = document.getElementById('file-tree-panel');
@@ -933,7 +1000,6 @@ let isResizing   = false;
 let resizeStartX = 0;
 let resizeStartW = 0;
 let savedTreeWidth = parseInt(localStorage.getItem('cc_tree_width') || '260');
-// 页面加载时恢复上次保存的宽度
 setTreeWidth(savedTreeWidth);
 
 function setTreeWidth(w) {
@@ -968,7 +1034,6 @@ function doResize(clientX) {
   if (!isResizing) return;
   const raw  = resizeStartW + clientX - resizeStartX;
   const newW = Math.min(Math.max(0, raw), window.innerWidth * 0.75);
-  // snap to 0 when dragged below 20px
   setTreeWidth(newW < 20 ? 0 : newW);
 }
 
@@ -996,187 +1061,169 @@ document.addEventListener('touchend', stopResize);
 
 document.getElementById('tree-collapse-btn').addEventListener('click', toggleTree);
 
-// ── File browser ──────────────────────────────────────────────────────────────
+// ── Pane divider drag (left pane ↔ right pane) ───────────────────────────────
 
-const pathBar           = document.getElementById('file-path-bar');
-const fileListEl        = document.getElementById('file-list');
-const fileOpenTitle     = document.getElementById('file-open-title');
-const fileTypeBadge     = document.getElementById('file-type-badge');
-const insertPathBtn     = document.getElementById('insert-path-btn');
-const fileContentBody   = document.getElementById('file-content-body');
-const refreshFilesBtn   = document.getElementById('refresh-files-btn');
+const fileContentArea = document.getElementById('file-content-area');
+const paneDivider     = document.getElementById('pane-divider');
+let isPaneDivResizing  = false;
+let paneDivStartX      = 0;
+let paneDivRightStartW = 0;
 
-let currentDir        = null;
-let currentPdfObjUrl  = null;   // 追踪当前 PDF Object URL，防止内存泄漏
+paneDivider.addEventListener('mousedown', e => {
+  isPaneDivResizing  = true;
+  paneDivStartX      = e.clientX;
+  paneDivRightStartW = document.getElementById('pane-right').offsetWidth;
+  paneDivider.classList.add('dragging');
+  document.body.style.cursor     = 'col-resize';
+  document.body.style.userSelect = 'none';
+  e.preventDefault();
+});
 
-// ── 编辑器状态 ────────────────────────────────────────────────────────────────
-const editState = {
-  active:               false,
-  filePath:             null,
-  fileName:             null,
-  lastSavedContent:     null,
-  serverMtime:          null,
-  autoSaveTimer:        null,
-  saveInProgress:   false,
-  treeWasVisible:   true,  // 进入编辑前文件树是否可见，退出时恢复
-};
+document.addEventListener('mousemove', e => {
+  if (!isPaneDivResizing) return;
+  const delta = paneDivStartX - e.clientX;  // drag left = right pane grows
+  const maxW  = fileContentArea.offsetWidth - 200;
+  const newW  = Math.max(150, Math.min(paneDivRightStartW + delta, maxW));
+  const rPane = document.getElementById('pane-right');
+  rPane.style.flex  = 'none';
+  rPane.style.width = newW + 'px';
+});
 
-// ── Banner（Agent 写入通知 / 冲突提示） ───────────────────────────────────────
-function showBanner(msg) {
-  document.getElementById('banner-msg').textContent = '⚠ ' + msg;
-  document.getElementById('file-change-banner').classList.add('visible');
+document.addEventListener('mouseup', () => {
+  if (!isPaneDivResizing) return;
+  isPaneDivResizing = false;
+  paneDivider.classList.remove('dragging');
+  document.body.style.cursor     = '';
+  document.body.style.userSelect = '';
+});
+
+// ── Pane state factory ────────────────────────────────────────────────────────
+
+function makePaneState(paneEl) {
+  return {
+    el:              paneEl,
+    header:          paneEl.querySelector('.pane-header'),
+    viewHd:          paneEl.querySelector('.pane-view-hd'),
+    editHd:          paneEl.querySelector('.pane-edit-hd'),
+    bannerEl:        paneEl.querySelector('.pane-banner'),
+    bannerMsgEl:     paneEl.querySelector('.pane-banner-msg'),
+    body:            paneEl.querySelector('.pane-body'),
+    titleEl:         paneEl.querySelector('.pane-title'),
+    badgeEl:         paneEl.querySelector('.pane-badge'),
+    editTitleEl:     paneEl.querySelector('.pane-edit-title'),
+    saveStatusEl:    paneEl.querySelector('.pane-save-status'),
+    editBtn:         paneEl.querySelector('.pane-edit-btn'),
+    insertBtn:       paneEl.querySelector('.pane-insert-btn'),
+    saveBtn:         paneEl.querySelector('.pane-save-btn'),
+    cancelBtn:       paneEl.querySelector('.pane-cancel-btn'),
+    bannerReloadBtn: paneEl.querySelector('.pane-banner-reload'),
+    bannerForceBtn:  paneEl.querySelector('.pane-banner-force'),
+    closeBtn:        paneEl.querySelector('.pane-close-btn'),  // null for left pane
+
+    // per-pane file state
+    filePath:  null,
+    fileName:  null,
+    pdfObjUrl: null,
+
+    // per-pane edit state
+    edit: {
+      active:           false,
+      filePath:         null,
+      fileName:         null,
+      lastSavedContent: null,
+      serverMtime:      null,
+      autoSaveTimer:    null,
+      saveInProgress:   false,
+      treeWasVisible:   true,
+    },
+  };
 }
-function hideBanner() {
-  document.getElementById('file-change-banner').classList.remove('visible');
+
+const paneLeft  = makePaneState(document.getElementById('pane-left'));
+const paneRight = makePaneState(document.getElementById('pane-right'));
+
+// ── Per-pane helpers ──────────────────────────────────────────────────────────
+
+function showBanner(pane, msg) {
+  pane.bannerMsgEl.textContent = '⚠ ' + msg;
+  pane.bannerEl.classList.add('visible');
+}
+function hideBanner(pane) {
+  pane.bannerEl.classList.remove('visible');
 }
 
-// ── 保存状态显示 ──────────────────────────────────────────────────────────────
-function setSaveStatus(cls, text) {
-  const el = document.getElementById('save-status-label');
-  el.className   = 'save-status' + (cls ? ' ' + cls : '');
-  el.textContent = text;
+function setSaveStatus(pane, cls, text) {
+  pane.saveStatusEl.className   = 'save-status' + (cls ? ' ' + cls : '');
+  pane.saveStatusEl.textContent = text;
 }
+
 function fmtTime() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
 }
 
-// ── Banner 按钮事件 ───────────────────────────────────────────────────────────
-document.getElementById('banner-reload-btn').addEventListener('click', () => {
-  // 丢弃本地编辑，重新从磁盘加载（用于 file_changed 通知）
-  if (editState.filePath) openFile(editState.filePath, editState.fileName);
-});
-document.getElementById('banner-force-save-btn').addEventListener('click', () => {
-  hideBanner();
-  const ta = document.getElementById('edit-textarea');
-  if (ta) saveFile(ta.value);   // 强制覆盖
-});
+// ── Open / close right pane ───────────────────────────────────────────────────
 
-// ── 编辑模式 ──────────────────────────────────────────────────────────────────
-function enterEditMode(filePath, name, content, mtime) {
-  editState.active           = true;
-  editState.filePath         = filePath;
-  editState.fileName         = name;
-  editState.lastSavedContent = content;
-  editState.serverMtime      = mtime;
-  editState.saveInProgress   = false;
-
-  document.getElementById('header-view-mode').style.display = 'none';
-  document.getElementById('header-edit-mode').style.display = 'flex';
-  document.getElementById('edit-file-title').textContent    = name;
-  setSaveStatus('', '');
-  hideBanner();
-
-  const ta = document.createElement('textarea');
-  ta.id    = 'edit-textarea';
-  ta.value = content;
-  fileContentBody.innerHTML = '';
-  fileContentBody.appendChild(ta);
-  ta.focus();
-
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'watch_file', path: filePath }));
-  }
-  editState.autoSaveTimer = setInterval(autoSave, 30000);
-
-  // 进入编辑模式：隐藏文件树和分隔条，textarea 获得全部宽度
-  editState.treeWasVisible = fileTreePanel.style.display !== 'none';
-  fileTreePanel.style.display = 'none';
-  resizeHandle.style.display  = 'none';
+function openRightPane() {
+  const rPane = document.getElementById('pane-right');
+  rPane.style.display = 'flex';
+  rPane.style.flex    = 'none';
+  rPane.style.width   = '50%';
+  paneDivider.style.display = '';
 }
 
-function exitEditMode() {
-  if (!editState.active) return;
-  clearInterval(editState.autoSaveTimer);
-  editState.autoSaveTimer = null;
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'unwatch_file', path: editState.filePath }));
-  }
-  const fp = editState.filePath, fn = editState.fileName;
-  editState.active   = false;
-  editState.filePath = null;
-  editState.fileName = null;
-  document.getElementById('header-view-mode').style.display = 'flex';
-  document.getElementById('header-edit-mode').style.display = 'none';
-  hideBanner();
-
-  // 退出编辑模式：恢复文件树和分隔条
-  fileTreePanel.style.display = 'flex';
-  resizeHandle.style.display  = '';
-
-  openFile(fp, fn);
+function closeRightPane() {
+  if (paneRight.edit.active) exitEditMode(paneRight);
+  if (paneRight.pdfObjUrl) { URL.revokeObjectURL(paneRight.pdfObjUrl); paneRight.pdfObjUrl = null; }
+  paneRight.el.style.display = 'none';
+  paneRight.el.style.flex    = '1';
+  paneDivider.style.display  = 'none';
+  paneRight.filePath = null;
+  paneRight.fileName = null;
+  paneRight.header.style.display = 'none';
+  paneRight.body.innerHTML       = '';
 }
 
-async function saveFile(forceContent) {
-  if (editState.saveInProgress) return;
-  editState.saveInProgress = true;
-  const ta         = document.getElementById('edit-textarea');
-  const newContent = forceContent !== undefined ? forceContent : (ta ? ta.value : editState.lastSavedContent);
+// ── Setup pane button event listeners ────────────────────────────────────────
 
-  setSaveStatus('saving', '保存中…');
-  try {
-    let body;
-    if (forceContent !== undefined) {
-      body = { path: editState.filePath, content: forceContent };
-    } else {
-      const patch = Diff.createPatch(editState.fileName, editState.lastSavedContent, newContent, '', '');
-      if (patch.indexOf('@@') === -1) {
-        setSaveStatus('saved', '已保存 ' + fmtTime());
-        editState.saveInProgress = false;
-        return;
-      }
-      body = { path: editState.filePath, patch, mtime: editState.serverMtime };
-    }
-    const res  = await fetch('/api/file', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify(body),
+function setupPaneButtons(pane) {
+  pane.saveBtn.addEventListener('click', () => saveFile(pane));
+  pane.cancelBtn.addEventListener('click', () => exitEditMode(pane));
+
+  pane.bannerReloadBtn.addEventListener('click', () => {
+    if (pane.edit.filePath) openFile(pane, pane.edit.filePath, pane.edit.fileName);
+    else if (pane.filePath) openFile(pane, pane.filePath, pane.fileName);
+  });
+  pane.bannerForceBtn.addEventListener('click', () => {
+    hideBanner(pane);
+    const ta = pane.body.querySelector('.edit-textarea');
+    if (ta) saveFile(pane, ta.value);
+  });
+
+  if (pane.insertBtn) {
+    pane.insertBtn.addEventListener('click', () => {
+      if (!pane.filePath) return;
+      switchView('chat');
+      inputEl.value += (inputEl.value ? ' ' : '') + pane.filePath;
+      autoResize();
+      inputEl.focus();
     });
-    const data = await res.json();
-    if (res.status === 409 && data.conflict) {
-      handleConflict(data.currentContent, data.currentMtime, newContent);
-    } else if (res.ok) {
-      editState.serverMtime      = data.mtime;
-      editState.lastSavedContent = newContent;
-      setSaveStatus('saved', '已保存 ' + fmtTime());
-    } else {
-      setSaveStatus('error', '保存失败：' + (data.error || '未知错误'));
-    }
-  } catch (e) {
-    setSaveStatus('error', '保存失败：' + e.message);
-  } finally {
-    editState.saveInProgress = false;
+  }
+
+  if (pane.closeBtn) {
+    pane.closeBtn.addEventListener('click', closeRightPane);
   }
 }
 
-function autoSave() {
-  if (!editState.active) return;
-  const ta = document.getElementById('edit-textarea');
-  if (!ta || ta.value === editState.lastSavedContent) return;
-  saveFile();
-}
+setupPaneButtons(paneLeft);
+setupPaneButtons(paneRight);
 
-function handleConflict(serverContent, serverMtime, localContent) {
-  setSaveStatus('error', '保存冲突');
-  showBanner('Claude 已修改此文件，与您的编辑产生冲突');
-  document.getElementById('banner-reload-btn').onclick = () => {
-    const ta = document.getElementById('edit-textarea');
-    if (ta) ta.value = serverContent;
-    editState.lastSavedContent = serverContent;
-    editState.serverMtime      = serverMtime;
-    hideBanner();
-    setSaveStatus('', '已重新加载');
-  };
-  document.getElementById('banner-force-save-btn').onclick = () => {
-    hideBanner();
-    saveFile(localContent);
-  };
-}
+// ── File browser ──────────────────────────────────────────────────────────────
 
-document.getElementById('save-btn').addEventListener('click', () => saveFile());
-document.getElementById('cancel-edit-btn').addEventListener('click', () => exitEditMode());
-
-// ─────────────────────────────────────────────────────────────────────────────
+const pathBar         = document.getElementById('file-path-bar');
+const fileListEl      = document.getElementById('file-list');
+const refreshFilesBtn = document.getElementById('refresh-files-btn');
+let currentDir = null;
 
 refreshFilesBtn.addEventListener('click', () => loadFiles(currentDir));
 
@@ -1211,15 +1258,26 @@ function makeEntry(name, type, filePath) {
   div.className = `file-entry ${type}`;
   div.innerHTML = `<div class="icon">${type === 'dir' ? '📁' : getFileIcon(name)}</div>
                    <div class="name">${esc(name)}</div>`;
+
   div.addEventListener('click', () => {
     if (type === 'dir') {
       loadFiles(filePath);
     } else {
       fileListEl.querySelectorAll('.file-entry').forEach(el => el.classList.remove('active'));
       div.classList.add('active');
-      openFile(filePath, name);
+      openFile(paneLeft, filePath, name);
     }
   });
+
+  // Drag-and-drop: file entries are draggable
+  if (type === 'file') {
+    div.draggable = true;
+    div.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ filePath, name }));
+      e.dataTransfer.effectAllowed = 'copy';
+    });
+  }
+
   return div;
 }
 
@@ -1264,7 +1322,7 @@ const langMap = {
   sql:'sql', md:'markdown', lua:'lua', rb:'ruby', php:'php',
 };
 
-function renderCodeView(name, content) {
+function renderCodeView(pane, name, content) {
   const ext  = name.split('.').pop().toLowerCase();
   const lang = langMap[ext];
   const pre  = document.createElement('pre');
@@ -1278,39 +1336,46 @@ function renderCodeView(name, content) {
   } else {
     pre.appendChild(code);
   }
-  fileContentBody.innerHTML = '';
-  fileContentBody.appendChild(pre);
+  pane.body.innerHTML = '';
+  pane.body.appendChild(pre);
 }
 
-async function openFile(filePath, name) {
-  // 若处于编辑模式，先静默退出（不保存）
-  if (editState.active) {
-    clearInterval(editState.autoSaveTimer);
-    editState.autoSaveTimer = null;
+async function openFile(pane, filePath, name) {
+  // If this pane is in edit mode, silently exit
+  if (pane.edit.active) {
+    clearInterval(pane.edit.autoSaveTimer);
+    pane.edit.autoSaveTimer = null;
     if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'unwatch_file', path: editState.filePath }));
+      ws.send(JSON.stringify({ type: 'unwatch_file', path: pane.edit.filePath }));
     }
-    editState.active   = false;
-    editState.filePath = null;
-    editState.fileName = null;
-    document.getElementById('header-view-mode').style.display = 'flex';
-    document.getElementById('header-edit-mode').style.display = 'none';
+    pane.edit.active   = false;
+    pane.edit.filePath = null;
+    pane.edit.fileName = null;
+    pane.viewHd.style.display = 'flex';
+    pane.editHd.style.display = 'none';
+    // Restore tree if we hid it for this pane
+    if (pane === paneLeft && pane.edit.treeWasVisible) {
+      fileTreePanel.style.display = 'flex';
+      resizeHandle.style.display  = '';
+    }
   }
 
-  // 释放旧 PDF Object URL
-  if (currentPdfObjUrl) { URL.revokeObjectURL(currentPdfObjUrl); currentPdfObjUrl = null; }
+  // Revoke old PDF Object URL
+  if (pane.pdfObjUrl) { URL.revokeObjectURL(pane.pdfObjUrl); pane.pdfObjUrl = null; }
 
-  document.getElementById('file-content-header').style.display = 'flex';
-  document.getElementById('header-view-mode').style.display    = 'flex';
-  document.getElementById('header-edit-mode').style.display    = 'none';
-  document.getElementById('edit-btn').style.display            = 'none';
-  fileOpenTitle.textContent   = filePath;
-  insertPathBtn.style.display = 'inline-block';
+  pane.header.style.display    = 'flex';
+  pane.viewHd.style.display    = 'flex';
+  pane.editHd.style.display    = 'none';
+  if (pane.editBtn) pane.editBtn.style.display = 'none';
+  pane.titleEl.textContent     = filePath;
+  if (pane.insertBtn) pane.insertBtn.style.display = 'inline-block';
+  pane.filePath = filePath;
+  pane.fileName = name;
   currentFilePath = filePath;
-  hideBanner();
+  hideBanner(pane);
 
-  fileTypeBadge.textContent = '';
-  fileContentBody.innerHTML = '<div class="file-placeholder"><div class="ph-icon">⏳</div><div class="ph-text">加载中…</div></div>';
+  pane.badgeEl.textContent = '';
+  pane.body.innerHTML = '<div class="file-placeholder"><div class="ph-icon">⏳</div><div class="ph-text">加载中…</div></div>';
 
   try {
     const res  = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`, {
@@ -1318,58 +1383,225 @@ async function openFile(filePath, name) {
     });
     const data = await res.json();
     if (!res.ok) {
-      fileContentBody.innerHTML = `<div class="file-placeholder"><div class="ph-icon">❌</div><div class="ph-text">${esc(data.error)}</div></div>`;
+      pane.body.innerHTML = `<div class="file-placeholder"><div class="ph-icon">❌</div><div class="ph-text">${esc(data.error)}</div></div>`;
       return;
     }
 
-    const serverType = data.type;   // 服务端返回的 type
+    const serverType = data.type;
 
     if (serverType === 'docx') {
-      fileTypeBadge.textContent = 'DOCX';
-      fileContentBody.innerHTML = `<div class="docx-view">${data.html}</div>`;
+      pane.badgeEl.textContent = 'DOCX';
+      pane.body.innerHTML = `<div class="docx-view">${data.html}</div>`;
 
     } else if (serverType === 'xlsx') {
-      fileTypeBadge.textContent = name.split('.').pop().toUpperCase();
-      fileContentBody.innerHTML = `<div class="table-view">${data.html}</div>`;
+      pane.badgeEl.textContent = name.split('.').pop().toUpperCase();
+      pane.body.innerHTML = `<div class="table-view">${data.html}</div>`;
 
     } else if (serverType === 'pdf') {
-      fileTypeBadge.textContent = 'PDF';
+      pane.badgeEl.textContent = 'PDF';
       const pdfRes = await fetch(data.rawUrl, { headers: { Authorization: 'Bearer ' + token } });
       const blob   = await pdfRes.blob();
-      currentPdfObjUrl = URL.createObjectURL(blob);
-      fileContentBody.innerHTML = `<embed src="${currentPdfObjUrl}" type="application/pdf" width="100%" style="height:100%;min-height:600px">`;
+      pane.pdfObjUrl = URL.createObjectURL(blob);
+      pane.body.innerHTML = `<embed src="${pane.pdfObjUrl}" type="application/pdf" width="100%" style="height:100%;min-height:600px">`;
 
     } else if (serverType === 'unsupported') {
-      fileTypeBadge.textContent = name.split('.').pop().toUpperCase();
-      fileContentBody.innerHTML = `<div class="unsupported-view"><div style="font-size:2rem">🚫</div><div>${esc(data.message)}</div></div>`;
+      pane.badgeEl.textContent = name.split('.').pop().toUpperCase();
+      pane.body.innerHTML = `<div class="unsupported-view"><div style="font-size:2rem">🚫</div><div>${esc(data.message)}</div></div>`;
 
     } else {
-      // text 类型
+      // text type
       const localType = detectFileType(name);
-      fileTypeBadge.textContent = localType === 'markdown' ? 'Markdown' : localType === 'code' ? name.split('.').pop().toUpperCase() : 'TEXT';
+      pane.badgeEl.textContent = localType === 'markdown' ? 'Markdown' : localType === 'code' ? name.split('.').pop().toUpperCase() : 'TEXT';
 
       if (localType === 'markdown') {
-        fileContentBody.innerHTML = `<div class="md-view">${renderMarkdown(data.content)}</div>`;
+        pane.body.innerHTML = `<div class="md-view">${renderMarkdown(data.content)}</div>`;
       } else {
-        renderCodeView(name, data.content);
+        renderCodeView(pane, name, data.content);
       }
 
-      // 可编辑文件显示编辑按钮
-      const editBtn = document.getElementById('edit-btn');
-      editBtn.style.display = 'inline-block';
-      editBtn.onclick = () => enterEditMode(filePath, name, data.content, data.mtime);
+      if (isEditableType(localType)) {
+        if (pane.editBtn) {
+          pane.editBtn.style.display = 'inline-block';
+          pane.editBtn.onclick = () => enterEditMode(pane, filePath, name, data.content, data.mtime);
+        }
+      }
     }
   } catch (e) {
-    fileContentBody.innerHTML = `<div class="file-placeholder"><div class="ph-icon">❌</div><div class="ph-text">读取失败: ${esc(e.message)}</div></div>`;
+    pane.body.innerHTML = `<div class="file-placeholder"><div class="ph-icon">❌</div><div class="ph-text">读取失败: ${esc(e.message)}</div></div>`;
   }
 }
 
-insertPathBtn.addEventListener('click', () => {
-  if (!currentFilePath) return;
-  switchView('chat');
-  inputEl.value += (inputEl.value ? ' ' : '') + currentFilePath;
-  autoResize();
-  inputEl.focus();
+// ── Edit mode ─────────────────────────────────────────────────────────────────
+
+function enterEditMode(pane, filePath, name, content, mtime) {
+  pane.edit.active           = true;
+  pane.edit.filePath         = filePath;
+  pane.edit.fileName         = name;
+  pane.edit.lastSavedContent = content;
+  pane.edit.serverMtime      = mtime;
+  pane.edit.saveInProgress   = false;
+
+  pane.header.style.display    = 'flex';
+  pane.viewHd.style.display    = 'none';
+  pane.editHd.style.display    = 'flex';
+  pane.editTitleEl.textContent = name;
+  setSaveStatus(pane, '', '');
+  hideBanner(pane);
+
+  const ta = document.createElement('textarea');
+  ta.className = 'edit-textarea';
+  ta.value     = content;
+  pane.body.innerHTML = '';
+  pane.body.appendChild(ta);
+
+  // Fix: restore scroll to top, don't auto-scroll to bottom
+  requestAnimationFrame(() => {
+    ta.setSelectionRange(0, 0);
+    ta.scrollTop = 0;
+    ta.focus();
+  });
+
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'watch_file', path: filePath }));
+  }
+  pane.edit.autoSaveTimer = setInterval(() => autoSave(pane), 30000);
+
+  // Hide file tree when left pane enters edit mode (only if right pane not open)
+  if (pane === paneLeft && paneRight.el.style.display === 'none') {
+    pane.edit.treeWasVisible    = fileTreePanel.style.display !== 'none';
+    fileTreePanel.style.display = 'none';
+    resizeHandle.style.display  = 'none';
+  } else {
+    pane.edit.treeWasVisible = true;
+  }
+}
+
+function exitEditMode(pane) {
+  if (!pane.edit.active) return;
+  clearInterval(pane.edit.autoSaveTimer);
+  pane.edit.autoSaveTimer = null;
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'unwatch_file', path: pane.edit.filePath }));
+  }
+  const fp = pane.edit.filePath, fn = pane.edit.fileName;
+  pane.edit.active   = false;
+  pane.edit.filePath = null;
+  pane.edit.fileName = null;
+  pane.viewHd.style.display = 'flex';
+  pane.editHd.style.display = 'none';
+  hideBanner(pane);
+
+  // Restore file tree if we hid it
+  if (pane === paneLeft && pane.edit.treeWasVisible) {
+    fileTreePanel.style.display = 'flex';
+    resizeHandle.style.display  = '';
+  }
+
+  openFile(pane, fp, fn);
+}
+
+async function saveFile(pane, forceContent) {
+  if (pane.edit.saveInProgress) return;
+  pane.edit.saveInProgress = true;
+  const ta         = pane.body.querySelector('.edit-textarea');
+  const newContent = forceContent !== undefined ? forceContent : (ta ? ta.value : pane.edit.lastSavedContent);
+
+  setSaveStatus(pane, 'saving', '保存中…');
+  try {
+    let body;
+    if (forceContent !== undefined) {
+      body = { path: pane.edit.filePath, content: forceContent };
+    } else {
+      const patch = Diff.createPatch(pane.edit.fileName, pane.edit.lastSavedContent, newContent, '', '');
+      if (patch.indexOf('@@') === -1) {
+        setSaveStatus(pane, 'saved', '已保存 ' + fmtTime());
+        pane.edit.saveInProgress = false;
+        return;
+      }
+      body = { path: pane.edit.filePath, patch, mtime: pane.edit.serverMtime };
+    }
+    const res  = await fetch('/api/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (res.status === 409 && data.conflict) {
+      handleConflict(pane, data.currentContent, data.currentMtime, newContent);
+    } else if (res.ok) {
+      pane.edit.serverMtime      = data.mtime;
+      pane.edit.lastSavedContent = newContent;
+      setSaveStatus(pane, 'saved', '已保存 ' + fmtTime());
+    } else {
+      setSaveStatus(pane, 'error', '保存失败：' + (data.error || '未知错误'));
+    }
+  } catch (e) {
+    setSaveStatus(pane, 'error', '保存失败：' + e.message);
+  } finally {
+    pane.edit.saveInProgress = false;
+  }
+}
+
+function autoSave(pane) {
+  if (!pane.edit.active) return;
+  const ta = pane.body.querySelector('.edit-textarea');
+  if (!ta || ta.value === pane.edit.lastSavedContent) return;
+  saveFile(pane);
+}
+
+function handleConflict(pane, serverContent, serverMtime, localContent) {
+  setSaveStatus(pane, 'error', '保存冲突');
+  showBanner(pane, 'Claude 已修改此文件，与您的编辑产生冲突');
+  pane.bannerReloadBtn.onclick = () => {
+    const ta = pane.body.querySelector('.edit-textarea');
+    if (ta) ta.value = serverContent;
+    pane.edit.lastSavedContent = serverContent;
+    pane.edit.serverMtime      = serverMtime;
+    hideBanner(pane);
+    setSaveStatus(pane, '', '已重新加载');
+  };
+  pane.bannerForceBtn.onclick = () => {
+    hideBanner(pane);
+    saveFile(pane, localContent);
+  };
+}
+
+// ── Drag and drop onto content area ──────────────────────────────────────────
+
+const dropHint = document.createElement('div');
+dropHint.className = 'drop-hint';
+fileContentArea.appendChild(dropHint);
+
+fileContentArea.addEventListener('dragover', e => {
+  // Only accept drags from file entries (text/plain with our JSON)
+  if (!e.dataTransfer.types.includes('text/plain')) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  const rect    = fileContentArea.getBoundingClientRect();
+  const isRight = e.clientX > rect.left + rect.width / 2;
+  dropHint.className = 'drop-hint ' + (isRight ? 'right' : 'left');
+});
+
+fileContentArea.addEventListener('dragleave', e => {
+  if (!fileContentArea.contains(e.relatedTarget)) {
+    dropHint.className = 'drop-hint';
+  }
+});
+
+fileContentArea.addEventListener('drop', e => {
+  e.preventDefault();
+  dropHint.className = 'drop-hint';
+  try {
+    const { filePath, name } = JSON.parse(e.dataTransfer.getData('text/plain'));
+    const rect    = fileContentArea.getBoundingClientRect();
+    const isRight = e.clientX > rect.left + rect.width / 2;
+    if (isRight) {
+      if (paneRight.el.style.display === 'none') openRightPane();
+      openFile(paneRight, filePath, name);
+    } else {
+      openFile(paneLeft, filePath, name);
+    }
+  } catch {}
 });
 
 // ── Markdown renderer ─────────────────────────────────────────────────────────
