@@ -469,10 +469,11 @@
     <button class="tbtn" data-key="enter"     title="回车确认">↵ 确认</button>
     <button class="tbtn" data-key="tab"       title="Tab 补全">Tab</button>
     <button class="tbtn yellow" data-key="escape" title="Esc">Esc</button>
-    <button class="tbtn" data-key="ctrl_l"    title="清屏">/clear</button>
-    <button class="tbtn" data-key="num_1"     title="发送 1">1</button>
-    <button class="tbtn" data-key="num_2"     title="发送 2">2</button>
-    <button class="tbtn" data-key="num_3"     title="发送 3">3</button>
+    <button class="tbtn" data-text="/clear"    title="清除上下文">/clear</button>
+    <button class="tbtn" data-text="/usage"   title="查看用量">/usage</button>
+    <button class="tbtn" data-text="1"        title="发送 1">1</button>
+    <button class="tbtn" data-text="2"        title="发送 2">2</button>
+    <button class="tbtn" data-text="3"        title="发送 3">3</button>
     <button class="tbtn red" data-key="ctrl_c" title="中断 Ctrl+C">⊘ 中断</button>
     <button class="tbtn red" data-key="ctrl_d" title="退出 Ctrl+D">⏏ 退出</button>
   </div>
@@ -579,7 +580,8 @@ term.attachCustomKeyEventHandler(evt => {
 
   if (evt.ctrlKey && (evt.key === '1' || evt.key === '2' || evt.key === '3')) {
     if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'input', data: evt.key + '\r' }));
+      ws.send(JSON.stringify({ type: 'input', data: evt.key }));
+      ws.send(JSON.stringify({ type: 'key',  key: 'enter' }));
     }
     return false;
   }
@@ -770,9 +772,14 @@ function sendText() {
 }
 
 document.getElementById('toolbar').addEventListener('click', e => {
-  const btn = e.target.closest('[data-key]');
+  const btn = e.target.closest('[data-key],[data-text]');
   if (!btn || !connected) return;
-  ws.send(JSON.stringify({ type: 'key', key: btn.dataset.key }));
+  if (btn.dataset.text !== undefined) {
+    if (btn.dataset.text) ws.send(JSON.stringify({ type: 'input', data: btn.dataset.text }));
+    ws.send(JSON.stringify({ type: 'key', key: 'enter' }));
+  } else {
+    ws.send(JSON.stringify({ type: 'key', key: btn.dataset.key }));
+  }
   inputEl.focus();
 });
 

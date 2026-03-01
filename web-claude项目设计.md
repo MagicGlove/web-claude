@@ -294,6 +294,8 @@ term.attachCustomKeyEventHandler(evt => {
 
 **Ctrl+1/2/3 的用途**：Claude 经常以编号列表（1. 选项A / 2. 选项B）呈现选择，桌面端用 Ctrl+1/2/3 可跳过手动输入直接选定，等效于打了数字再回车。
 
+> **重要**：数字和回车必须作为两次独立的 PTY write 发送，合并成 `'1\r'` 单次写入时 Claude 的 readline 不会触发行提交。因此实现上先发 `{ type: 'input', data: '1' }`，再发 `{ type: 'key', key: 'enter' }`。
+
 ### 4.5 Enter 模式可切换
 
 桌面用户习惯 Enter 发送消息，手机用户则更习惯 Enter 换行、点按钮发送。为此在 header 加了一个切换按钮，偏好存入 `localStorage`：
@@ -668,17 +670,35 @@ cd /etc && cat passwd
 
 ### 添加新的快捷键按钮
 
-在 `chat.html` 的 `#toolbar` 里加一个 button：
+toolbar 按钮有两种类型，根据用途选择：
+
+**类型一：控制字符（`data-key`）**，适用于方向键、Ctrl+C 等：
 ```html
 <button class="tbtn" data-key="ctrl_r" title="重新运行">↺ 重新运行</button>
 ```
-然后在 `server.js` 的 `KEY_MAP` 里加上对应的 PTY 转义序列（`ctrl_r` 对应 `\x12`）：
+然后在 `server.js` 的 `KEY_MAP` 里加上对应的 PTY 转义序列：
 ```javascript
 ctrl_r: '\x12',
 ```
-前端无需改动——toolbar 的 click 事件统一把 `btn.dataset.key` 作为 `key` 字段通过 WebSocket 发给服务端，服务端查 `KEY_MAP` 再写入 PTY。
 
-**已内置的数字选项快捷键**：toolbar 上已有 `1` `2` `3` 三个按钮（`data-key="num_1/2/3"`），对应 `KEY_MAP` 里 `num_1: '1\r'` 等条目，点击后直接向 PTY 发送数字加回车，用于快速选择 Claude 列出的编号选项。桌面端等效快捷键为 `Ctrl+1/2/3`（在 `attachCustomKeyEventHandler` 中处理）。
+**类型二：文字命令（`data-text`）**，适用于数字选项、slash 命令等：
+```html
+<button class="tbtn" data-text="/help" title="帮助">/help</button>
+```
+无需修改 `server.js`——前端直接发 `{ type: 'input', data: '/help' }` + `{ type: 'key', key: 'enter' }` 两段式，与用户手动输入完全一致。
+
+> **为什么要两段式？** Claude 的 readline 要求文字和 Enter 必须是两次独立的 PTY write 才能正确触发行提交，合并成 `'/help\r'` 单次写入不生效。
+
+**toolbar 按钮的两种发送机制**：
+
+| 属性 | 适用场景 | 发送方式 |
+|------|---------|---------|
+| `data-key="up"` | 方向键、Ctrl+C 等控制字符 | `{ type: 'key', key: 'up' }` → 服务端查 KEY_MAP 写入 PTY |
+| `data-text="1"` | 文字内容（数字、slash 命令等）| `{ type: 'input', data: '1' }` + `{ type: 'key', key: 'enter' }` 两段式 |
+
+`data-text` 机制与用户手动在输入框发送完全一致，能正确触发 Claude readline 的行提交。`data-key` 只用于不需要 readline 处理的控制字符。
+
+**已内置的快捷按钮**：`1` `2` `3`（选择编号选项）、`/clear`（清除上下文）、`/usage`（查看用量）均使用 `data-text`。桌面端 `Ctrl+1/2/3` 等效于点击数字按钮，同样走两段式发送。
 
 ### 添加新的 API 接口
 
