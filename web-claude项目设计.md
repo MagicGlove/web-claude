@@ -176,7 +176,7 @@ Authorization: Bearer <token>
 |------|------|---------|
 | `auth` | 发送令牌认证 | `token` |
 | `input` | 用户输入的文字 | `data`（字符串，不含回车，回车单独用 `key:enter` 发送） |
-| `key` | 特殊按键 | `key`（如 `ctrl_c`、`enter`） |
+| `key` | 特殊按键 | `key`（如 `ctrl_c`、`enter`、`num_1`） |
 | `resize` | 终端尺寸变化 | `cols`、`rows` |
 
 **服务器 → 浏览器：**
@@ -256,9 +256,9 @@ body（flex 竖排）
 
 **`flex: 1`** 是 CSS Flexbox 的属性，意思是"占据父容器的全部剩余空间"。终端区域、文件内容区域都用了这个，所以能自动填满屏幕。
 
-### 4.4 终端 Ctrl+C / Ctrl+V 处理
+### 4.4 终端特殊按键处理
 
-xterm.js 默认把 Ctrl+C 当作 SIGINT（中断信号）发给 PTY，导致用户无法用 Ctrl+C 复制终端里的文字，Ctrl+V 也无法粘贴剪贴板内容。通过 `attachCustomKeyEventHandler` 拦截这两个按键，在应用层做分流：
+xterm.js 默认把 Ctrl+C 当作 SIGINT（中断信号）发给 PTY，导致用户无法用 Ctrl+C 复制终端里的文字，Ctrl+V 也无法粘贴剪贴板内容。通过 `attachCustomKeyEventHandler` 拦截，在应用层做分流：
 
 ```javascript
 term.attachCustomKeyEventHandler(evt => {
@@ -280,11 +280,19 @@ term.attachCustomKeyEventHandler(evt => {
     return false;     // 粘贴剪贴板内容到终端，阻止 xterm 默认行为
   }
 
+  if (evt.ctrlKey && (evt.key === '1' || evt.key === '2' || evt.key === '3')) {
+    if (ws && ws.readyState === 1)
+      ws.send(JSON.stringify({ type: 'input', data: evt.key + '\r' }));
+    return false;     // 快速选项：Ctrl+1/2/3 直接发送对应数字并回车
+  }
+
   return true;        // 其他按键交给 xterm 处理
 });
 ```
 
 `attachCustomKeyEventHandler` 的返回值含义：`false` 表示"我自己处理了，xterm 不要管"，`true` 表示"xterm 按默认逻辑处理"。
+
+**Ctrl+1/2/3 的用途**：Claude 经常以编号列表（1. 选项A / 2. 选项B）呈现选择，桌面端用 Ctrl+1/2/3 可跳过手动输入直接选定，等效于打了数字再回车。
 
 ### 4.5 Enter 模式可切换
 
@@ -385,6 +393,8 @@ ws.send(JSON.stringify({ type: 'key',  key: 'enter' }));  // 再单独发 Enter
 ### 4.9 文件浏览器
 
 文件浏览分两步：
+
+**刷新按钮**：文件树面板标题栏右侧有一个 `⟳` 按钮，点击后重新加载当前目录，用于 Claude 修改文件后同步显示最新内容。实现方式：`loadFiles()` 每次成功后将当前路径存入 `currentDir`，刷新按钮直接调用 `loadFiles(currentDir)`。
 
 **第一步：列目录**（点击文件夹时）
 ```javascript
@@ -662,7 +672,13 @@ cd /etc && cat passwd
 ```html
 <button class="tbtn" data-key="ctrl_r" title="重新运行">↺ 重新运行</button>
 ```
-然后在 `server.js` 的 `KEY_MAP` 和前端的 `KEY_MAP` 里都加上对应的转义序列（`ctrl_r` 对应 `\x12`）。
+然后在 `server.js` 的 `KEY_MAP` 里加上对应的 PTY 转义序列（`ctrl_r` 对应 `\x12`）：
+```javascript
+ctrl_r: '\x12',
+```
+前端无需改动——toolbar 的 click 事件统一把 `btn.dataset.key` 作为 `key` 字段通过 WebSocket 发给服务端，服务端查 `KEY_MAP` 再写入 PTY。
+
+**已内置的数字选项快捷键**：toolbar 上已有 `1` `2` `3` 三个按钮（`data-key="num_1/2/3"`），对应 `KEY_MAP` 里 `num_1: '1\r'` 等条目，点击后直接向 PTY 发送数字加回车，用于快速选择 Claude 列出的编号选项。桌面端等效快捷键为 `Ctrl+1/2/3`（在 `attachCustomKeyEventHandler` 中处理）。
 
 ### 添加新的 API 接口
 

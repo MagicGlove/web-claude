@@ -231,6 +231,9 @@
       overflow: hidden;
     }
     #file-tree-panel .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       font-size: 0.8rem;
       font-weight: 600;
       color: var(--accent);
@@ -467,6 +470,9 @@
     <button class="tbtn" data-key="tab"       title="Tab 补全">Tab</button>
     <button class="tbtn yellow" data-key="escape" title="Esc">Esc</button>
     <button class="tbtn" data-key="ctrl_l"    title="清屏">/clear</button>
+    <button class="tbtn" data-key="num_1"     title="发送 1">1</button>
+    <button class="tbtn" data-key="num_2"     title="发送 2">2</button>
+    <button class="tbtn" data-key="num_3"     title="发送 3">3</button>
     <button class="tbtn red" data-key="ctrl_c" title="中断 Ctrl+C">⊘ 中断</button>
     <button class="tbtn red" data-key="ctrl_d" title="退出 Ctrl+D">⏏ 退出</button>
   </div>
@@ -483,7 +489,7 @@
 
     <!-- Left: file tree -->
     <div id="file-tree-panel">
-      <div class="panel-title">文件浏览</div>
+      <div class="panel-title">文件浏览<button id="refresh-files-btn" class="hbtn" title="刷新">⟳</button></div>
       <div id="file-path-bar">/</div>
       <div id="file-list"></div>
     </div>
@@ -568,6 +574,13 @@ term.attachCustomKeyEventHandler(evt => {
         ws.send(JSON.stringify({ type: 'input', data: text }));
       }
     }).catch(() => {});
+    return false;
+  }
+
+  if (evt.ctrlKey && (evt.key === '1' || evt.key === '2' || evt.key === '3')) {
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'input', data: evt.key + '\r' }));
+    }
     return false;
   }
 
@@ -836,12 +849,17 @@ document.addEventListener('touchend', stopResize);
 
 // ── File browser ──────────────────────────────────────────────────────────────
 
-const pathBar         = document.getElementById('file-path-bar');
-const fileListEl      = document.getElementById('file-list');
-const fileOpenTitle   = document.getElementById('file-open-title');
-const fileTypeBadge   = document.getElementById('file-type-badge');
-const insertPathBtn   = document.getElementById('insert-path-btn');
-const fileContentBody = document.getElementById('file-content-body');
+const pathBar           = document.getElementById('file-path-bar');
+const fileListEl        = document.getElementById('file-list');
+const fileOpenTitle     = document.getElementById('file-open-title');
+const fileTypeBadge     = document.getElementById('file-type-badge');
+const insertPathBtn     = document.getElementById('insert-path-btn');
+const fileContentBody   = document.getElementById('file-content-body');
+const refreshFilesBtn   = document.getElementById('refresh-files-btn');
+
+let currentDir = null;
+
+refreshFilesBtn.addEventListener('click', () => loadFiles(currentDir));
 
 async function loadFiles(dir) {
   fileListEl.innerHTML = '<div class="file-entry"><div class="icon">…</div><div>加载中</div></div>';
@@ -855,6 +873,7 @@ async function loadFiles(dir) {
     }
 
     pathBar.textContent = data.path;
+    currentDir = data.path;
     fileListEl.innerHTML = '';
 
     if (data.parent && data.parent !== data.path) {

@@ -217,6 +217,9 @@ const KEY_MAP = {
   tab:        '\t',
   page_up:    '\x1b[5~',
   page_down:  '\x1b[6~',
+  num_1:      '1\r',
+  num_2:      '2\r',
+  num_3:      '3\r',
 };
 
 wss.on('connection', ws => {
