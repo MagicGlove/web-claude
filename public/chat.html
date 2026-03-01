@@ -942,7 +942,7 @@ function setTreeWidth(w) {
 }
 
 function toggleTree() {
-  if (fileTreePanel.offsetWidth === 0) {
+  if (fileSplit.classList.contains('tree-collapsed')) {
     setTreeWidth(savedTreeWidth || 260);
   } else {
     setTreeWidth(0);
@@ -1005,13 +1005,14 @@ let currentPdfObjUrl  = null;   // 追踪当前 PDF Object URL，防止内存泄
 
 // ── 编辑器状态 ────────────────────────────────────────────────────────────────
 const editState = {
-  active:            false,
-  filePath:          null,
-  fileName:          null,
-  lastSavedContent:  null,
-  serverMtime:       null,
-  autoSaveTimer:     null,
-  saveInProgress:    false,
+  active:               false,
+  filePath:             null,
+  fileName:             null,
+  lastSavedContent:     null,
+  serverMtime:          null,
+  autoSaveTimer:        null,
+  saveInProgress:       false,
+  treeWidthBeforeEdit:  null,  // 进入编辑前的文件树宽度，退出时恢复
 };
 
 // ── Banner（Agent 写入通知 / 冲突提示） ───────────────────────────────────────
@@ -1071,6 +1072,14 @@ function enterEditMode(filePath, name, content, mtime) {
     ws.send(JSON.stringify({ type: 'watch_file', path: filePath }));
   }
   editState.autoSaveTimer = setInterval(autoSave, 30000);
+
+  // 进入编辑模式时自动折叠文件树，让 textarea 获得全部宽度
+  if (!fileSplit.classList.contains('tree-collapsed')) {
+    editState.treeWidthBeforeEdit = fileTreePanel.offsetWidth || savedTreeWidth;
+    setTreeWidth(0);
+  } else {
+    editState.treeWidthBeforeEdit = null;  // 已经是折叠状态，退出时不恢复
+  }
 }
 
 function exitEditMode() {
@@ -1087,6 +1096,12 @@ function exitEditMode() {
   document.getElementById('header-view-mode').style.display = 'flex';
   document.getElementById('header-edit-mode').style.display = 'none';
   hideBanner();
+
+  // 退出编辑模式时恢复文件树宽度
+  if (editState.treeWidthBeforeEdit) {
+    setTreeWidth(editState.treeWidthBeforeEdit);
+  }
+
   openFile(fp, fn);
 }
 
