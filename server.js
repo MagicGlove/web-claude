@@ -10,6 +10,9 @@ const path       = require('path');
 const http       = require('http');
 const crypto     = require('crypto');
 const { v4: uuidv4 } = require('uuid');
+const mammoth    = require('mammoth');
+const XLSX       = require('xlsx');
+const Diff       = require('diff');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -72,11 +75,12 @@ function createSession(sessionId, workDir) {
 
   const session = {
     term,
-    buffer:       '',
-    clients:      new Set(),
-    workDir:      safeDir,
-    lastActivity: Date.now(),
-    alive:        true,
+    buffer:        '',
+    clients:       new Set(),
+    workDir:       safeDir,
+    lastActivity:  Date.now(),
+    alive:         true,
+    suppressPaths: new Set(),   // 抑制自写触发 file_changed 的路径集合
   };
 
   term.onData(data => {
@@ -167,8 +171,8 @@ app.get('/api/files', requireAuth, (req, res) => {
   }
 });
 
-// GET /api/file?path=...
-app.get('/api/file', requireAuth, (req, res) => {
+// GET /api/file?path=...  按扩展名分流返回
+app.get('/api/file', requireAuth, async (req, res) => {
   const workDir  = path.resolve(req.authPayload.workDir || DEFAULT_WORKDIR);
   const filePath = path.resolve(req.query.path || '');
 
@@ -178,8 +182,112 @@ app.get('/api/file', requireAuth, (req, res) => {
 
   try {
     const stat = fs.statSync(filePath);
+    const ext  = path.extname(filePath).toLowerCase();
+
+    if (ext === '.pdf') {
+      // PDF：不读内容，返回 raw URL 让客户端自行获取
+      const rawUrl = `/api/file/raw?path=${encodeURIComponent(filePath)}`;
+      return res.json({ type: 'pdf', path: filePath, rawUrl });
+    }
+
+    if (ext === '.doc') {
+      return res.json({ type: 'unsupported', path: filePath, message: '旧格式 .doc 不支持预览，请转换为 .docx' });
+    }
+
+    if (ext === '.docx') {
+      if (stat.size > 5 * 1024 * 1024) return res.status(400).json({ error: '文件过大（>5MB）' });
+      const result = await mammoth.convertToHtml({ path: filePath });
+      return res.json({ type: 'docx', path: filePath, html: result.value });
+    }
+
+    if (['.xlsx', '.xls', '.csv'].includes(ext)) {
+      if (stat.size > 5 * 1024 * 1024) return res.status(400).json({ error: '文件过大（>5MB）' });
+      const wb   = XLSX.readFile(filePath);
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const html = XLSX.utils.sheet_to_html(ws, { id: 'sheet-table', editable: false });
+      return res.json({ type: 'xlsx', path: filePath, html });
+    }
+
+    // 文本文件
     if (stat.size > 500 * 1024) return res.status(400).json({ error: '文件过大（>500KB）' });
-    res.json({ path: filePath, content: fs.readFileSync(filePath, 'utf8') });
+    res.json({
+      type:    'text',
+      path:    filePath,
+      content: fs.readFileSync(filePath, 'utf8'),
+      mtime:   stat.mtimeMs,
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// GET /api/file/raw?path=...  流式传输原始文件（PDF）
+app.get('/api/file/raw', requireAuth, (req, res) => {
+  const workDir  = path.resolve(req.authPayload.workDir || DEFAULT_WORKDIR);
+  const filePath = path.resolve(req.query.path || '');
+
+  if (!withinRoot(workDir, filePath)) {
+    return res.status(403).json({ error: '禁止访问工作目录之外的路径' });
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext !== '.pdf') return res.status(400).json({ error: '仅支持 PDF 文件' });
+
+  try {
+    const stat = fs.statSync(filePath);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', 'inline');
+    fs.createReadStream(filePath).pipe(res);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// POST /api/file  写文件（patch 或强制覆盖）
+app.post('/api/file', requireAuth, (req, res) => {
+  const workDir  = path.resolve(req.authPayload.workDir || DEFAULT_WORKDIR);
+  const { path: rawPath, patch, content, mtime } = req.body || {};
+
+  if (!rawPath) return res.status(400).json({ error: '缺少 path 参数' });
+
+  const filePath = path.resolve(rawPath);
+  if (!withinRoot(workDir, filePath)) {
+    return res.status(403).json({ error: '禁止访问工作目录之外的路径' });
+  }
+
+  try {
+    const stat    = fs.statSync(filePath);
+    const current = fs.readFileSync(filePath, 'utf8');
+
+    // mtime 冲突检测（允许 100ms 误差）
+    if (mtime !== undefined && Math.abs(stat.mtimeMs - mtime) > 100) {
+      return res.status(409).json({ conflict: true, currentContent: current, currentMtime: stat.mtimeMs });
+    }
+
+    let finalContent;
+    if (patch !== undefined) {
+      const result = Diff.applyPatch(current, patch);
+      if (result === false) {
+        return res.status(409).json({ conflict: true, currentContent: current, currentMtime: stat.mtimeMs });
+      }
+      finalContent = result;
+    } else if (content !== undefined) {
+      finalContent = content;   // 强制覆盖
+    } else {
+      return res.status(400).json({ error: '缺少 patch 或 content' });
+    }
+
+    // 抑制自写触发 file_changed
+    const session = sessions.get(req.authPayload.sessionId);
+    if (session) session.suppressPaths.add(filePath);
+
+    fs.writeFileSync(filePath, finalContent, 'utf8');
+    const newStat = fs.statSync(filePath);
+
+    if (session) setTimeout(() => session.suppressPaths.delete(filePath), 200);
+
+    res.json({ ok: true, mtime: newStat.mtimeMs });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -220,8 +328,9 @@ const KEY_MAP = {
 };
 
 wss.on('connection', ws => {
-  let payload = null;
-  let session = null;
+  let payload    = null;
+  let session    = null;
+  const wsWatchers = new Map();   // path → FSWatcher，此连接的文件监听器
 
   const send = msg => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); };
 
@@ -276,9 +385,37 @@ wss.on('connection', ws => {
       const { cols, rows } = msg;
       if (cols > 0 && rows > 0 && session.alive) session.term.resize(cols, rows);
     }
+
+    // ── Watch file（客户端进入编辑模式时）────────────────────────────────────
+    else if (msg.type === 'watch_file') {
+      const filePath = path.resolve(msg.path || '');
+      const workDir  = path.resolve(payload.workDir || DEFAULT_WORKDIR);
+      if (!withinRoot(workDir, filePath)) return;
+      if (wsWatchers.has(filePath)) return;   // 幂等
+      try {
+        const watcher = fs.watch(filePath, (eventType) => {
+          if (eventType !== 'change') return;
+          if (session.suppressPaths.has(filePath)) return;   // 自写抑制
+          broadcast(session, { type: 'file_changed', path: filePath });
+        });
+        wsWatchers.set(filePath, watcher);
+      } catch {}  // 文件不存在等情况静默忽略
+    }
+
+    // ── Unwatch file（客户端离开编辑模式时）──────────────────────────────────
+    else if (msg.type === 'unwatch_file') {
+      const filePath = path.resolve(msg.path || '');
+      const watcher  = wsWatchers.get(filePath);
+      if (watcher) { try { watcher.close(); } catch {} wsWatchers.delete(filePath); }
+    }
   });
 
-  ws.on('close', () => { if (session) session.clients.delete(ws); });
+  ws.on('close', () => {
+    if (session) session.clients.delete(ws);
+    // 关闭此连接的所有文件监听器
+    for (const watcher of wsWatchers.values()) { try { watcher.close(); } catch {} }
+    wsWatchers.clear();
+  });
 });
 
 // ─── Cleanup idle sessions ────────────────────────────────────────────────────

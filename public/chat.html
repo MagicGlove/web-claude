@@ -14,6 +14,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
+  <!-- diff：增量 patch 计算 -->
+  <script src="https://cdn.jsdelivr.net/npm/diff@5.2.0/dist/diff.min.js"></script>
+
   <style>
     /* ── Reset & Variables ──────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -432,6 +435,59 @@
       #header h1 { font-size: 0.95rem; }
       .hbtn { padding: 4px 8px; font-size: 0.78rem; }
     }
+
+    /* ── 多格式文件视图 ──────────────────────────────────────────────────────── */
+    .docx-view {
+      padding: 24px 32px;
+      font-size: var(--file-font-size);
+      color: var(--text);
+      line-height: 1.7;
+      max-width: 860px;
+    }
+    .docx-view table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    .docx-view th, .docx-view td { border: 1px solid var(--border); padding: 6px 10px; }
+
+    .table-view { padding: 0; overflow: auto; height: 100%; }
+    .table-view table { border-collapse: collapse; font-size: 0.85rem; font-family: var(--font-mono); min-width: 100%; }
+    .table-view th {
+      background: var(--bg3); color: var(--accent);
+      border: 1px solid var(--border); padding: 6px 10px;
+      white-space: nowrap; position: sticky; top: 0; z-index: 1;
+    }
+    .table-view td { border: 1px solid var(--border); padding: 5px 10px; color: var(--text); white-space: nowrap; }
+    .table-view tr:nth-child(even) td { background: rgba(255,255,255,.03); }
+
+    .unsupported-view {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 100%; color: var(--text-dim);
+      gap: 12px; padding: 40px; font-size: 0.95rem; text-align: center;
+    }
+
+    /* ── 在线编辑器 ──────────────────────────────────────────────────────────── */
+    #edit-textarea {
+      flex: 1; width: 100%; height: 100%;
+      padding: 20px 24px;
+      background: var(--bg3); border: none; outline: none;
+      color: var(--text); font-family: var(--font-mono);
+      font-size: var(--file-font-size); line-height: 1.65;
+      resize: none; white-space: pre; overflow-wrap: normal;
+      overflow-x: auto; tab-size: 2;
+    }
+
+    .save-status { font-size: 0.78rem; color: var(--text-dim); font-family: var(--font-mono); flex: none; }
+    .save-status.saving { color: var(--warn); }
+    .save-status.saved  { color: var(--success); }
+    .save-status.error  { color: var(--danger); }
+
+    /* ── Agent 写入警告条 ────────────────────────────────────────────────────── */
+    #file-change-banner {
+      display: none; align-items: center; gap: 10px;
+      padding: 8px 16px;
+      background: #3d2f00; border-bottom: 1px solid var(--warn);
+      color: var(--warn); font-size: 0.85rem; flex: none;
+    }
+    #file-change-banner.visible { display: flex; }
+    #file-change-banner .banner-btns { display: flex; gap: 6px; margin-left: auto; }
   </style>
 </head>
 <body>
@@ -501,9 +557,29 @@
     <!-- Right: file content -->
     <div id="file-content-panel">
       <div id="file-content-header" style="display:none">
-        <span class="file-title" id="file-open-title"></span>
-        <span class="file-type-badge" id="file-type-badge"></span>
-        <button class="hbtn" id="insert-path-btn" style="display:none" title="将路径插入聊天输入框">插入路径</button>
+        <!-- 只读模式 header -->
+        <div id="header-view-mode" style="display:flex;align-items:center;gap:10px;width:100%">
+          <span class="file-title" id="file-open-title"></span>
+          <span class="file-type-badge" id="file-type-badge"></span>
+          <button class="hbtn" id="edit-btn"        style="display:none" title="编辑文件">编辑</button>
+          <button class="hbtn" id="insert-path-btn" style="display:none" title="将路径插入聊天输入框">插入路径</button>
+        </div>
+        <!-- 编辑模式 header -->
+        <div id="header-edit-mode" style="display:none;align-items:center;gap:10px;width:100%">
+          <span class="file-title" id="edit-file-title"></span>
+          <span class="save-status" id="save-status-label"></span>
+          <div style="flex:1"></div>
+          <button class="hbtn" id="save-btn">保存</button>
+          <button class="hbtn danger" id="cancel-edit-btn">取消</button>
+        </div>
+      </div>
+      <!-- Agent 写入警告条 -->
+      <div id="file-change-banner">
+        <span id="banner-msg">⚠ Claude 已修改此文件</span>
+        <div class="banner-btns">
+          <button class="hbtn" id="banner-reload-btn">重新加载</button>
+          <button class="hbtn danger" id="banner-force-save-btn">强制覆盖保存</button>
+        </div>
       </div>
       <div id="file-content-body"></div>
     </div>
@@ -707,6 +783,10 @@ function setStatus(state, text) {
       setStatus('ok', `已连接  ${msg.username}`);
       sendBtn.disabled = false;
       sendResize();
+      // 断线重连后恢复文件监听
+      if (editState.active && editState.filePath) {
+        ws.send(JSON.stringify({ type: 'watch_file', path: editState.filePath }));
+      }
     }
     else if (msg.type === 'output') {
       term.write(msg.data);
@@ -721,6 +801,11 @@ function setStatus(state, text) {
       if (msg.message.includes('令牌')) {
         localStorage.removeItem('cc_token');
         setTimeout(() => location.href = '/', 1500);
+      }
+    }
+    else if (msg.type === 'file_changed') {
+      if (editState.active && msg.path === editState.filePath) {
+        showBanner('Claude 已修改此文件，建议保存后重新加载');
       }
     }
   };
@@ -864,7 +949,166 @@ const insertPathBtn     = document.getElementById('insert-path-btn');
 const fileContentBody   = document.getElementById('file-content-body');
 const refreshFilesBtn   = document.getElementById('refresh-files-btn');
 
-let currentDir = null;
+let currentDir        = null;
+let currentPdfObjUrl  = null;   // 追踪当前 PDF Object URL，防止内存泄漏
+
+// ── 编辑器状态 ────────────────────────────────────────────────────────────────
+const editState = {
+  active:            false,
+  filePath:          null,
+  fileName:          null,
+  lastSavedContent:  null,
+  serverMtime:       null,
+  autoSaveTimer:     null,
+  saveInProgress:    false,
+};
+
+// ── Banner（Agent 写入通知 / 冲突提示） ───────────────────────────────────────
+function showBanner(msg) {
+  document.getElementById('banner-msg').textContent = '⚠ ' + msg;
+  document.getElementById('file-change-banner').classList.add('visible');
+}
+function hideBanner() {
+  document.getElementById('file-change-banner').classList.remove('visible');
+}
+
+// ── 保存状态显示 ──────────────────────────────────────────────────────────────
+function setSaveStatus(cls, text) {
+  const el = document.getElementById('save-status-label');
+  el.className   = 'save-status' + (cls ? ' ' + cls : '');
+  el.textContent = text;
+}
+function fmtTime() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+}
+
+// ── Banner 按钮事件 ───────────────────────────────────────────────────────────
+document.getElementById('banner-reload-btn').addEventListener('click', () => {
+  // 丢弃本地编辑，重新从磁盘加载（用于 file_changed 通知）
+  if (editState.filePath) openFile(editState.filePath, editState.fileName);
+});
+document.getElementById('banner-force-save-btn').addEventListener('click', () => {
+  hideBanner();
+  const ta = document.getElementById('edit-textarea');
+  if (ta) saveFile(ta.value);   // 强制覆盖
+});
+
+// ── 编辑模式 ──────────────────────────────────────────────────────────────────
+function enterEditMode(filePath, name, content, mtime) {
+  editState.active           = true;
+  editState.filePath         = filePath;
+  editState.fileName         = name;
+  editState.lastSavedContent = content;
+  editState.serverMtime      = mtime;
+  editState.saveInProgress   = false;
+
+  document.getElementById('header-view-mode').style.display = 'none';
+  document.getElementById('header-edit-mode').style.display = 'flex';
+  document.getElementById('edit-file-title').textContent    = name;
+  setSaveStatus('', '');
+  hideBanner();
+
+  const ta = document.createElement('textarea');
+  ta.id    = 'edit-textarea';
+  ta.value = content;
+  fileContentBody.innerHTML = '';
+  fileContentBody.appendChild(ta);
+  ta.focus();
+
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'watch_file', path: filePath }));
+  }
+  editState.autoSaveTimer = setInterval(autoSave, 30000);
+}
+
+function exitEditMode() {
+  if (!editState.active) return;
+  clearInterval(editState.autoSaveTimer);
+  editState.autoSaveTimer = null;
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'unwatch_file', path: editState.filePath }));
+  }
+  const fp = editState.filePath, fn = editState.fileName;
+  editState.active   = false;
+  editState.filePath = null;
+  editState.fileName = null;
+  document.getElementById('header-view-mode').style.display = 'flex';
+  document.getElementById('header-edit-mode').style.display = 'none';
+  hideBanner();
+  openFile(fp, fn);
+}
+
+async function saveFile(forceContent) {
+  if (editState.saveInProgress) return;
+  editState.saveInProgress = true;
+  const ta         = document.getElementById('edit-textarea');
+  const newContent = forceContent !== undefined ? forceContent : (ta ? ta.value : editState.lastSavedContent);
+
+  setSaveStatus('saving', '保存中…');
+  try {
+    let body;
+    if (forceContent !== undefined) {
+      body = { path: editState.filePath, content: forceContent };
+    } else {
+      const patch = Diff.createPatch(editState.fileName, editState.lastSavedContent, newContent, '', '');
+      if (patch.indexOf('@@') === -1) {
+        setSaveStatus('saved', '已保存 ' + fmtTime());
+        editState.saveInProgress = false;
+        return;
+      }
+      body = { path: editState.filePath, patch, mtime: editState.serverMtime };
+    }
+    const res  = await fetch('/api/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (res.status === 409 && data.conflict) {
+      handleConflict(data.currentContent, data.currentMtime, newContent);
+    } else if (res.ok) {
+      editState.serverMtime      = data.mtime;
+      editState.lastSavedContent = newContent;
+      setSaveStatus('saved', '已保存 ' + fmtTime());
+    } else {
+      setSaveStatus('error', '保存失败：' + (data.error || '未知错误'));
+    }
+  } catch (e) {
+    setSaveStatus('error', '保存失败：' + e.message);
+  } finally {
+    editState.saveInProgress = false;
+  }
+}
+
+function autoSave() {
+  if (!editState.active) return;
+  const ta = document.getElementById('edit-textarea');
+  if (!ta || ta.value === editState.lastSavedContent) return;
+  saveFile();
+}
+
+function handleConflict(serverContent, serverMtime, localContent) {
+  setSaveStatus('error', '保存冲突');
+  showBanner('Claude 已修改此文件，与您的编辑产生冲突');
+  document.getElementById('banner-reload-btn').onclick = () => {
+    const ta = document.getElementById('edit-textarea');
+    if (ta) ta.value = serverContent;
+    editState.lastSavedContent = serverContent;
+    editState.serverMtime      = serverMtime;
+    hideBanner();
+    setSaveStatus('', '已重新加载');
+  };
+  document.getElementById('banner-force-save-btn').onclick = () => {
+    hideBanner();
+    saveFile(localContent);
+  };
+}
+
+document.getElementById('save-btn').addEventListener('click', () => saveFile());
+document.getElementById('cancel-edit-btn').addEventListener('click', () => exitEditMode());
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 refreshFilesBtn.addEventListener('click', () => loadFiles(currentDir));
 
@@ -918,26 +1162,84 @@ function getFileIcon(name) {
     sh: '⚙️', json: '{ }', yaml: '📋', yml: '📋',
     css: '🎨', html: '🌐', htm: '🌐', go: '🐹',
     rs: '🦀', java: '☕', c: '⚙️', cpp: '⚙️', h: '⚙️',
+    docx: '📝', doc: '📝', xlsx: '📊', xls: '📊', csv: '📊', pdf: '📕',
   };
   return icons[ext] || '📄';
 }
 
 function detectFileType(name) {
   const ext = name.split('.').pop().toLowerCase();
-  const mdExts   = ['md', 'markdown', 'mdx'];
+  if (['md','markdown','mdx'].includes(ext)) return 'markdown';
+  if (ext === 'docx') return 'docx';
+  if (ext === 'doc')  return 'doc';
+  if (['xlsx','xls','csv'].includes(ext)) return 'xlsx';
+  if (ext === 'pdf')  return 'pdf';
   const codeExts = ['js','ts','jsx','tsx','py','sh','bash','json','yaml','yml',
                     'css','html','htm','go','rs','java','c','cpp','h','hpp',
                     'toml','ini','env','sql','xml','dockerfile','gitignore'];
-  if (mdExts.includes(ext))   return 'markdown';
   if (codeExts.includes(ext)) return 'code';
   return 'text';
 }
 
+function isEditableType(t) { return ['text','code','markdown'].includes(t); }
+
+const langMap = {
+  c:'c', h:'c', cpp:'cpp', cc:'cpp', cxx:'cpp', hpp:'cpp',
+  py:'python', pyw:'python',
+  js:'javascript', jsx:'javascript', mjs:'javascript',
+  ts:'typescript', tsx:'typescript',
+  go:'go', rs:'rust', java:'java', kt:'kotlin', swift:'swift',
+  sh:'bash', bash:'bash', zsh:'bash',
+  json:'json', yaml:'yaml', yml:'yaml', toml:'ini',
+  css:'css', scss:'scss', less:'less',
+  html:'html', htm:'html', xml:'xml',
+  sql:'sql', md:'markdown', lua:'lua', rb:'ruby', php:'php',
+};
+
+function renderCodeView(name, content) {
+  const ext  = name.split('.').pop().toLowerCase();
+  const lang = langMap[ext];
+  const pre  = document.createElement('pre');
+  pre.className = 'code-view';
+  const code = document.createElement('code');
+  code.textContent = content;
+  if (lang && window.hljs && hljs.getLanguage(lang)) {
+    code.className = `language-${lang}`;
+    pre.appendChild(code);
+    hljs.highlightElement(code);
+  } else {
+    pre.appendChild(code);
+  }
+  fileContentBody.innerHTML = '';
+  fileContentBody.appendChild(pre);
+}
+
 async function openFile(filePath, name) {
+  // 若处于编辑模式，先静默退出（不保存）
+  if (editState.active) {
+    clearInterval(editState.autoSaveTimer);
+    editState.autoSaveTimer = null;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'unwatch_file', path: editState.filePath }));
+    }
+    editState.active   = false;
+    editState.filePath = null;
+    editState.fileName = null;
+    document.getElementById('header-view-mode').style.display = 'flex';
+    document.getElementById('header-edit-mode').style.display = 'none';
+  }
+
+  // 释放旧 PDF Object URL
+  if (currentPdfObjUrl) { URL.revokeObjectURL(currentPdfObjUrl); currentPdfObjUrl = null; }
+
   document.getElementById('file-content-header').style.display = 'flex';
+  document.getElementById('header-view-mode').style.display    = 'flex';
+  document.getElementById('header-edit-mode').style.display    = 'none';
+  document.getElementById('edit-btn').style.display            = 'none';
   fileOpenTitle.textContent   = filePath;
   insertPathBtn.style.display = 'inline-block';
   currentFilePath = filePath;
+  hideBanner();
 
   fileTypeBadge.textContent = '';
   fileContentBody.innerHTML = '<div class="file-placeholder"><div class="ph-icon">⏳</div><div class="ph-text">加载中…</div></div>';
@@ -952,40 +1254,42 @@ async function openFile(filePath, name) {
       return;
     }
 
-    const type = detectFileType(name);
-    fileTypeBadge.textContent = type === 'markdown' ? 'Markdown' : type === 'code' ? name.split('.').pop().toUpperCase() : 'TEXT';
+    const serverType = data.type;   // 服务端返回的 type
 
-    if (type === 'markdown') {
-      const rendered = renderMarkdown(data.content);
-      fileContentBody.innerHTML = `<div class="md-view">${rendered}</div>`;
+    if (serverType === 'docx') {
+      fileTypeBadge.textContent = 'DOCX';
+      fileContentBody.innerHTML = `<div class="docx-view">${data.html}</div>`;
+
+    } else if (serverType === 'xlsx') {
+      fileTypeBadge.textContent = name.split('.').pop().toUpperCase();
+      fileContentBody.innerHTML = `<div class="table-view">${data.html}</div>`;
+
+    } else if (serverType === 'pdf') {
+      fileTypeBadge.textContent = 'PDF';
+      const pdfRes = await fetch(data.rawUrl, { headers: { Authorization: 'Bearer ' + token } });
+      const blob   = await pdfRes.blob();
+      currentPdfObjUrl = URL.createObjectURL(blob);
+      fileContentBody.innerHTML = `<embed src="${currentPdfObjUrl}" type="application/pdf" width="100%" style="height:100%;min-height:600px">`;
+
+    } else if (serverType === 'unsupported') {
+      fileTypeBadge.textContent = name.split('.').pop().toUpperCase();
+      fileContentBody.innerHTML = `<div class="unsupported-view"><div style="font-size:2rem">🚫</div><div>${esc(data.message)}</div></div>`;
+
     } else {
-      const ext = name.split('.').pop().toLowerCase();
-      const langMap = {
-        c:'c', h:'c', cpp:'cpp', cc:'cpp', cxx:'cpp', hpp:'cpp',
-        py:'python', pyw:'python',
-        js:'javascript', jsx:'javascript', mjs:'javascript',
-        ts:'typescript', tsx:'typescript',
-        go:'go', rs:'rust', java:'java', kt:'kotlin', swift:'swift',
-        sh:'bash', bash:'bash', zsh:'bash',
-        json:'json', yaml:'yaml', yml:'yaml', toml:'ini',
-        css:'css', scss:'scss', less:'less',
-        html:'html', htm:'html', xml:'xml',
-        sql:'sql', md:'markdown', lua:'lua', rb:'ruby', php:'php',
-      };
-      const lang = langMap[ext];
-      const pre  = document.createElement('pre');
-      pre.className = 'code-view';
-      const code = document.createElement('code');
-      code.textContent = data.content;
-      if (lang && window.hljs && hljs.getLanguage(lang)) {
-        code.className = `language-${lang}`;
-        pre.appendChild(code);
-        hljs.highlightElement(code);
+      // text 类型
+      const localType = detectFileType(name);
+      fileTypeBadge.textContent = localType === 'markdown' ? 'Markdown' : localType === 'code' ? name.split('.').pop().toUpperCase() : 'TEXT';
+
+      if (localType === 'markdown') {
+        fileContentBody.innerHTML = `<div class="md-view">${renderMarkdown(data.content)}</div>`;
       } else {
-        pre.appendChild(code);
+        renderCodeView(name, data.content);
       }
-      fileContentBody.innerHTML = '';
-      fileContentBody.appendChild(pre);
+
+      // 可编辑文件显示编辑按钮
+      const editBtn = document.getElementById('edit-btn');
+      editBtn.style.display = 'inline-block';
+      editBtn.onclick = () => enterEditMode(filePath, name, data.content, data.mtime);
     }
   } catch (e) {
     fileContentBody.innerHTML = `<div class="file-placeholder"><div class="ph-icon">❌</div><div class="ph-text">读取失败: ${esc(e.message)}</div></div>`;

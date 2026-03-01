@@ -58,6 +58,9 @@ web-claude/
 | `bcryptjs` | 对密码加密存储 | 把密码变成乱码存起来，防止数据库泄露后密码被破解 |
 | `uuid` | 生成唯一ID | 每个会话分配一个不重复的ID |
 | `crypto` `fs` `path` `http` | Node.js 内置模块，不需要安装 | 随机数、文件读写、路径处理、HTTP服务 |
+| `mammoth` | 将 .docx 文件转为 HTML | 纯 JS 实现，无需安装 LibreOffice |
+| `xlsx`（SheetJS） | 读取 .xlsx/.xls/.csv 文件 | 生成 HTML 表格供浏览器展示 |
+| `diff` | 生成和应用 unified diff patch | 客户端发增量 patch，服务端 apply 到磁盘文件 |
 
 ### 3.2 启动流程
 
@@ -146,6 +149,7 @@ const session = {
   workDir,           // 工作目录
   lastActivity,      // 最后活跃时间
   alive: true,       // 进程是否还在运行
+  suppressPaths: new Set(),  // 抑制自写触发 file_changed 的路径集合（200ms 窗口）
 };
 ```
 
@@ -159,9 +163,11 @@ const session = {
 |------|------|------|
 | `/api/login` | POST | 验证用户名密码，返回 JWT 令牌 |
 | `/api/files?path=...` | GET | 列出指定目录的文件和子目录 |
-| `/api/file?path=...` | GET | 读取指定文件内容（限500KB以内） |
+| `/api/file?path=...` | GET | 按文件类型分流：文本返回内容+mtime，docx/xlsx/csv 返回 HTML，pdf 返回 rawUrl，.doc 返回 unsupported |
+| `/api/file/raw?path=...` | GET | 流式传输 PDF 文件原始字节（仅限 .pdf） |
+| `/api/file` | POST | 写文件：body `{path, patch?, content?, mtime?}`；patch 方式做 mtime+diff 双重冲突检测；content 方式强制覆盖；返回 `{ok, mtime}` 或 `{conflict:true, currentContent, currentMtime}` |
 
-所有 `/api/files` 和 `/api/file` 请求都需要在 HTTP Header 中携带令牌：
+所有 `/api/*` 请求都需要在 HTTP Header 中携带令牌：
 ```
 Authorization: Bearer <token>
 ```
@@ -176,8 +182,10 @@ Authorization: Bearer <token>
 |------|------|---------|
 | `auth` | 发送令牌认证 | `token` |
 | `input` | 用户输入的文字 | `data`（字符串，不含回车，回车单独用 `key:enter` 发送） |
-| `key` | 特殊按键 | `key`（如 `ctrl_c`、`enter`、`num_1`） |
+| `key` | 特殊按键 | `key`（如 `ctrl_c`、`enter`） |
 | `resize` | 终端尺寸变化 | `cols`、`rows` |
+| `watch_file` | 开始监听文件变化 | `path`（绝对路径，仅限 workDir 内） |
+| `unwatch_file` | 停止监听文件变化 | `path` |
 
 **服务器 → 浏览器：**
 
@@ -187,6 +195,7 @@ Authorization: Bearer <token>
 | `output` | 终端输出数据 | `data`（含ANSI转义序列） |
 | `exit` | Claude进程退出 | `code`（退出码） |
 | `error` | 错误信息 | `message` |
+| `file_changed` | 被监听的文件被外部（Agent）修改 | `path` |
 
 ---
 
@@ -281,8 +290,10 @@ term.attachCustomKeyEventHandler(evt => {
   }
 
   if (evt.ctrlKey && (evt.key === '1' || evt.key === '2' || evt.key === '3')) {
-    if (ws && ws.readyState === 1)
-      ws.send(JSON.stringify({ type: 'input', data: evt.key + '\r' }));
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'input', data: evt.key }));   // 先发数字
+      ws.send(JSON.stringify({ type: 'key',  key: 'enter' }));     // 再单独发 Enter
+    }
     return false;     // 快速选项：Ctrl+1/2/3 直接发送对应数字并回车
   }
 
@@ -416,12 +427,117 @@ const data = await res.json();
 // data.content 是文件文本内容，根据文件类型决定如何渲染
 ```
 
-**三种渲染模式**：
-- `markdown`（.md 文件）：自定义 `renderMarkdown()` 函数转成 HTML
-- `code`（.js/.py/.go 等）：用 `highlight.js` 做语法高亮
-- `text`（其他文本）：原样显示
+**多格式渲染模式**（由服务端 `type` 字段决定）：
 
-### 4.10 自制 Markdown 渲染器
+| 文件类型 | 服务端处理 | 前端渲染 |
+|---------|---------|---------|
+| `.md` | 原样返回文本 | 自定义 `renderMarkdown()` 转成 HTML |
+| `.js/.py` 等代码文件 | 原样返回文本 | `highlight.js` 语法高亮 |
+| 其他文本 | 原样返回文本 | 原样显示 |
+| `.docx` | mammoth 转 HTML（服务端） | `<div class="docx-view">` 直接注入 |
+| `.xlsx/.xls/.csv` | SheetJS 转 HTML 表格（服务端） | `<div class="table-view">` 注入，带 sticky 表头 |
+| `.pdf` | 不读内容，返回 `rawUrl` | 客户端 fetch + Blob + `URL.createObjectURL()` → `<embed>` |
+| `.doc` | 不支持，返回提示 | 显示"请转换为 .docx"提示 |
+
+所有文本类文件（md/代码/纯文本）在文件头部显示"编辑"按钮，点击进入在线编辑模式。
+
+### 4.10 在线编辑与增量同步
+
+**设计目标**：用户能直接在浏览器里修改工作目录内的文本文件，并能感知到 Agent（Claude）对同一文件的并发写入。
+
+**editState 对象**（统一管理编辑状态）：
+```javascript
+const editState = {
+  active:           false,      // 是否处于编辑模式
+  filePath:         null,       // 正在编辑的文件路径
+  fileName:         null,       // 文件名（用于 diff patch 头部）
+  lastSavedContent: null,       // 上次成功保存时的内容（用于计算 patch）
+  serverMtime:      null,       // 上次保存后服务端返回的 mtime（用于冲突检测）
+  autoSaveTimer:    null,       // setInterval ID（30s 自动保存）
+  saveInProgress:   false,      // 防并发保存
+};
+```
+
+**进入编辑模式**（`enterEditMode(filePath, name, content, mtime)`）：
+1. 将文件头切换为"编辑模式" header（显示保存/取消按钮、保存状态）
+2. 将文件内容区替换为 `<textarea id="edit-textarea">`，内容填充磁盘文件原文
+3. 通过 WebSocket 发 `watch_file`，让服务端开始监听此文件变化
+4. 启动 30s 自动保存定时器
+
+**增量保存**（`saveFile(forceContent?)`）：
+```
+正常保存（无 forceContent）：
+  patch = Diff.createPatch(fileName, lastSavedContent, textarea.value)
+  POST /api/file { path, patch, mtime: serverMtime }
+  → 服务端：mtime 冲突检测 + Diff.applyPatch() + writeFileSync
+  → 成功：更新 lastSavedContent + serverMtime，显示"已保存 HH:mm:ss"
+
+强制覆盖（forceContent 传入）：
+  POST /api/file { path, content: forceContent }
+  → 服务端：直接 writeFileSync，无冲突检测
+```
+
+**冲突处理**（`handleConflict()`）：
+- 服务端返回 `{conflict:true, currentContent, currentMtime}` 时触发
+- 前端显示橙色警告条，提供两个选项：
+  - "重新加载"：丢弃本地编辑，将服务端内容填入 textarea
+  - "强制覆盖保存"：调用 `saveFile(localContent)` 强制写入
+
+### 4.11 Agent 写入一致性
+
+**问题**：用户在浏览器里编辑文件时，Claude（Agent）可能同时通过工具修改磁盘上的同一文件，导致用户下次保存时产生冲突甚至丢失数据。
+
+**解决方案**：`fs.watch` + `suppressPaths` + 橙色警告条
+
+**fs.watch 监听（服务端）**：
+```javascript
+// 每个 WS 连接有独立的 wsWatchers Map
+const wsWatchers = new Map();   // path → FSWatcher
+
+// 收到 watch_file 消息时：
+const watcher = fs.watch(filePath, () => {
+  if (session.suppressPaths.has(filePath)) return;   // 自写抑制，跳过
+  broadcast(session, { type: 'file_changed', path: filePath });   // 通知所有客户端
+});
+wsWatchers.set(filePath, watcher);
+
+// WS 断开时自动清理所有 watcher
+ws.on('close', () => {
+  for (const w of wsWatchers.values()) w.close();
+  wsWatchers.clear();
+});
+```
+
+**suppressPaths 自写抑制（服务端）**：
+用户保存文件时，`POST /api/file` 在 `writeFileSync` 前后执行：
+```javascript
+session.suppressPaths.add(filePath);    // 加入抑制集合
+fs.writeFileSync(filePath, finalContent);
+setTimeout(() => session.suppressPaths.delete(filePath), 200);   // 200ms 后移除
+```
+这样 fs.watch 回调（约50ms 后触发）检测到路径在抑制集合里，不会广播 `file_changed`，避免用户收到自己写入的虚假冲突通知。
+
+**客户端响应**：
+```javascript
+else if (msg.type === 'file_changed') {
+  if (editState.active && msg.path === editState.filePath) {
+    showBanner('Claude 已修改此文件，建议保存后重新加载');
+  }
+}
+```
+
+**完整一致性场景表**：
+
+| 场景 | 行为 |
+|------|------|
+| 用户保存文件 | suppressPaths 抑制 200ms，fs.watch 回调被跳过，客户端不收到误报 |
+| Claude 修改用户正在编辑的文件 | fs.watch 触发 → broadcast file_changed → 客户端显示橙色警告条 |
+| 用户选"重新加载" | 丢弃本地编辑，服务端内容覆盖 textarea，mtime 同步 |
+| 用户选"强制覆盖保存" | 发全量 content（无 mtime 校验），强制覆盖 |
+| Claude 修改用户未打开的文件 | 未建立 fs.watch，无影响 |
+| WS 断线重连 | auth_ok 后检测 editState.active，重发 watch_file 恢复监听 |
+
+### 4.12 自制 Markdown 渲染器
 
 项目没有引入 marked.js 等库，而是自己写了一个 `renderMarkdown()` 函数（约80行）。思路是用正则表达式依次替换各种 Markdown 语法：
 
@@ -748,3 +864,7 @@ app.get('/api/你的路径', requireAuth, (req, res) => {
 | **路径穿越（Path Traversal）** | 安全漏洞：通过 `../` 等方式绕出限定目录，访问到系统其他文件 |
 | **环境变量** | 进程运行时携带的一组键值对（如 `ALLOWED_DIR=/usr/tourist`），子进程会继承父进程的环境变量 |
 | **exit 2** | Shell 脚本的退出码，Claude Code 约定退出码 2 表示"拒绝该工具调用" |
+| **unified diff / patch** | 文本文件的增量描述格式（`diff -u` 输出），只包含变化的行，比传全文节省带宽 |
+| **fs.watch** | Node.js 内置 API，监听文件系统事件（文件修改、重命名等） |
+| **suppressPaths** | 本项目自定义机制：用户保存时暂时抑制自写触发的 file_changed 广播，防止虚假冲突通知 |
+| **Object URL** | 浏览器将 Blob/File 对象映射为 `blob:` 协议的临时 URL，可用于 `<embed>` 等标签加载本地数据 |
