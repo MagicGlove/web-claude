@@ -219,6 +219,7 @@
     /* ── File View ───────────────────────────────────────────────────────────── */
     #file-split {
       display: flex;
+      width: 100%;
       height: 100%;
       overflow: hidden;
     }
@@ -1016,8 +1017,8 @@ const editState = {
   lastSavedContent:     null,
   serverMtime:          null,
   autoSaveTimer:        null,
-  saveInProgress:       false,
-  treeWidthBeforeEdit:  null,  // 进入编辑前的文件树宽度，退出时恢复
+  saveInProgress:   false,
+  treeWasVisible:   true,  // 进入编辑前文件树是否可见，退出时恢复
 };
 
 // ── Banner（Agent 写入通知 / 冲突提示） ───────────────────────────────────────
@@ -1078,13 +1079,10 @@ function enterEditMode(filePath, name, content, mtime) {
   }
   editState.autoSaveTimer = setInterval(autoSave, 30000);
 
-  // 进入编辑模式时自动折叠文件树，让 textarea 获得全部宽度
-  if (!fileSplit.classList.contains('tree-collapsed')) {
-    editState.treeWidthBeforeEdit = fileTreePanel.offsetWidth || savedTreeWidth;
-    setTreeWidth(0);
-  } else {
-    editState.treeWidthBeforeEdit = null;  // 已经是折叠状态，退出时不恢复
-  }
+  // 进入编辑模式：隐藏文件树和分隔条，textarea 获得全部宽度
+  editState.treeWasVisible = fileTreePanel.style.display !== 'none';
+  fileTreePanel.style.display = 'none';
+  resizeHandle.style.display  = 'none';
 }
 
 function exitEditMode() {
@@ -1102,10 +1100,9 @@ function exitEditMode() {
   document.getElementById('header-edit-mode').style.display = 'none';
   hideBanner();
 
-  // 退出编辑模式时恢复文件树宽度
-  if (editState.treeWidthBeforeEdit) {
-    setTreeWidth(editState.treeWidthBeforeEdit);
-  }
+  // 退出编辑模式：恢复文件树和分隔条
+  fileTreePanel.style.display = 'flex';
+  resizeHandle.style.display  = '';
 
   openFile(fp, fn);
 }
