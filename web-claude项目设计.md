@@ -407,7 +407,29 @@ ws.send(JSON.stringify({ type: 'key',  key: 'enter' }));  // 再单独发 Enter
 
 文件浏览分两步：
 
-**刷新按钮**：文件树面板标题栏右侧有一个 `⟳` 按钮，点击后重新加载当前目录，用于 Claude 修改文件后同步显示最新内容。实现方式：`loadFiles()` 每次成功后将当前路径存入 `currentDir`，刷新按钮直接调用 `loadFiles(currentDir)`。
+**文件树宽度可拖动调整**：
+
+- 标题栏有 `◀` 折叠按钮和 `⟳` 刷新按钮
+- 拖动 `#resize-handle` 分隔条可任意调整文件树宽度（最小可拖到 0，即完全折叠）
+- 拖到 20px 以下时自动吸附到 0（完全折叠），树内容隐藏，分隔条变为 18px 宽的展开条（显示 `›` 箭头），方便触屏点击展开
+- 双击分隔条：在当前宽度与 0 之间切换
+- 点击 `◀` 按钮：折叠；展开时拖动分隔条或双击即可恢复
+- 宽度存入 `localStorage`（`cc_tree_width`），刷新页面后恢复
+
+```javascript
+function setTreeWidth(w) {
+  fileTreePanel.style.width = w + 'px';
+  if (w === 0) {
+    fileSplit.classList.add('tree-collapsed');   // CSS 切换展开条样式
+  } else {
+    fileSplit.classList.remove('tree-collapsed');
+    savedTreeWidth = w;
+    localStorage.setItem('cc_tree_width', w);   // 持久化
+  }
+}
+```
+
+**刷新按钮**：点击后重新加载当前目录，用于 Claude 修改文件后同步显示最新内容。实现方式：`loadFiles()` 每次成功后将当前路径存入 `currentDir`，刷新按钮直接调用 `loadFiles(currentDir)`。
 
 **第一步：列目录**（点击文件夹时）
 ```javascript

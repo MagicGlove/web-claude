@@ -225,7 +225,7 @@
 
     #file-tree-panel {
       width: 260px;
-      min-width: 140px;
+      min-width: 0;
       flex: none;
       display: flex;
       flex-direction: column;
@@ -416,13 +416,36 @@
       cursor: col-resize;
       background: var(--border);
       opacity: 0.35;
-      transition: opacity 0.15s, background 0.15s;
+      transition: opacity 0.15s, background 0.15s, width 0.15s;
       touch-action: none;
+      position: relative;
     }
     #resize-handle:hover,
     #resize-handle.dragging {
       opacity: 1;
       background: var(--accent);
+    }
+    /* 文件树折叠时：加宽把手，显示展开箭头，便于触屏点击 */
+    .tree-collapsed #resize-handle {
+      width: 18px;
+      background: var(--bg2);
+      border-right: 2px solid var(--accent);
+      opacity: 0.8;
+    }
+    .tree-collapsed #resize-handle::after {
+      content: '›';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--accent);
+      font-size: 18px;
+      line-height: 1;
+      pointer-events: none;
+    }
+    .tree-collapsed #resize-handle:hover {
+      background: var(--bg3);
+      opacity: 1;
     }
 
     /* ── Responsive ──────────────────────────────────────────────────────────── */
@@ -546,7 +569,7 @@
 
     <!-- Left: file tree -->
     <div id="file-tree-panel">
-      <div class="panel-title">文件浏览<button id="refresh-files-btn" class="hbtn" title="刷新">⟳</button></div>
+      <div class="panel-title">文件浏览<div style="display:flex;gap:4px"><button id="tree-collapse-btn" class="hbtn" title="折叠文件树（双击分隔条也可切换）">◀</button><button id="refresh-files-btn" class="hbtn" title="刷新">⟳</button></div></div>
       <div id="file-path-bar">/</div>
       <div id="file-list"></div>
     </div>
@@ -899,9 +922,32 @@ window.addEventListener('resize', () => {
 
 const resizeHandle  = document.getElementById('resize-handle');
 const fileTreePanel = document.getElementById('file-tree-panel');
+const fileSplit     = document.getElementById('file-split');
 let isResizing   = false;
 let resizeStartX = 0;
 let resizeStartW = 0;
+let savedTreeWidth = parseInt(localStorage.getItem('cc_tree_width') || '260');
+// 页面加载时恢复上次保存的宽度
+setTreeWidth(savedTreeWidth);
+
+function setTreeWidth(w) {
+  fileTreePanel.style.width = w + 'px';
+  if (w === 0) {
+    fileSplit.classList.add('tree-collapsed');
+  } else {
+    fileSplit.classList.remove('tree-collapsed');
+    savedTreeWidth = w;
+    localStorage.setItem('cc_tree_width', w);
+  }
+}
+
+function toggleTree() {
+  if (fileTreePanel.offsetWidth === 0) {
+    setTreeWidth(savedTreeWidth || 260);
+  } else {
+    setTreeWidth(0);
+  }
+}
 
 function startResize(clientX) {
   isResizing   = true;
@@ -914,8 +960,10 @@ function startResize(clientX) {
 
 function doResize(clientX) {
   if (!isResizing) return;
-  const newW = Math.max(60, Math.min(resizeStartW + clientX - resizeStartX, window.innerWidth * 0.75));
-  fileTreePanel.style.width = newW + 'px';
+  const raw  = resizeStartW + clientX - resizeStartX;
+  const newW = Math.min(Math.max(0, raw), window.innerWidth * 0.75);
+  // snap to 0 when dragged below 20px
+  setTreeWidth(newW < 20 ? 0 : newW);
 }
 
 function stopResize() {
@@ -929,6 +977,7 @@ function stopResize() {
 resizeHandle.addEventListener('mousedown', e => { startResize(e.clientX); e.preventDefault(); });
 document.addEventListener('mousemove', e => doResize(e.clientX));
 document.addEventListener('mouseup',   stopResize);
+resizeHandle.addEventListener('dblclick', toggleTree);
 
 resizeHandle.addEventListener('touchstart', e => {
   startResize(e.touches[0].clientX);
@@ -938,6 +987,8 @@ document.addEventListener('touchmove', e => {
   if (isResizing) { doResize(e.touches[0].clientX); e.preventDefault(); }
 }, { passive: false });
 document.addEventListener('touchend', stopResize);
+
+document.getElementById('tree-collapse-btn').addEventListener('click', toggleTree);
 
 // ── File browser ──────────────────────────────────────────────────────────────
 
