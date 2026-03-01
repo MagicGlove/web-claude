@@ -258,9 +258,19 @@ body（flex 竖排）
 │   └── #input-area（输入框 + 发送按钮）
 │
 └── #view-files（文件视图，flex 横排）
-    ├── #file-tree-panel（文件树，固定宽度，可拖动调整）
-    ├── #resize-handle（6px 拖动分隔条）
-    └── #file-content-panel（文件内容，占据剩余空间）
+    └── #file-split（flex 横排）
+        ├── #file-tree-panel（文件树，固定宽度，可拖动调整）
+        ├── #resize-handle（6px 拖动分隔条，树↔内容区）
+        └── #file-content-area（内容区，flex 横排，position:relative）
+            ├── #pane-left（左栏，flex:1，默认全宽）
+            │   ├── .pane-header（只读/编辑双模式 header）
+            │   ├── .pane-banner（Agent 写入警告条）
+            │   └── .pane-body（文件内容渲染区）
+            ├── #pane-divider（5px 拖动分隔条，左↔右栏，默认隐藏）
+            └── #pane-right（右栏，默认隐藏；含 ✕ 关闭按钮）
+                ├── .pane-header
+                ├── .pane-banner
+                └── .pane-body
 ```
 
 **`flex: 1`** 是 CSS Flexbox 的属性，意思是"占据父容器的全部剩余空间"。终端区域、文件内容区域都用了这个，所以能自动填满屏幕。
@@ -431,6 +441,8 @@ function setTreeWidth(w) {
 
 **刷新按钮**：点击后重新加载当前目录，用于 Claude 修改文件后同步显示最新内容。实现方式：`loadFiles()` 每次成功后将当前路径存入 `currentDir`，刷新按钮直接调用 `loadFiles(currentDir)`。
 
+**拖拽打开右栏**：文件条目设置了 `draggable=true`，拖到 `#file-content-area` 右半边（`clientX > rect.left + rect.width/2`）时自动唤起右栏，并在右栏加载文件；拖到左半边则在左栏打开。拖动过程中显示半透明蓝色虚线提示框（`.drop-hint.left` / `.drop-hint.right`）指示落点。
+
 **第一步：列目录**（点击文件夹时）
 ```javascript
 const res  = await fetch(`/api/files?path=${encodeURIComponent(dir)}`, {
@@ -467,24 +479,36 @@ const data = await res.json();
 
 **设计目标**：用户能直接在浏览器里修改工作目录内的文本文件，并能感知到 Agent（Claude）对同一文件的并发写入。
 
-**editState 对象**（统一管理编辑状态）：
+**per-pane 状态工厂**（`makePaneState(paneEl)`）：
+
+每个 pane 是独立的状态对象，由工厂函数生成。关键字段：
 ```javascript
-const editState = {
-  active:           false,      // 是否处于编辑模式
-  filePath:         null,       // 正在编辑的文件路径
-  fileName:         null,       // 文件名（用于 diff patch 头部）
-  lastSavedContent: null,       // 上次成功保存时的内容（用于计算 patch）
-  serverMtime:      null,       // 上次保存后服务端返回的 mtime（用于冲突检测）
-  autoSaveTimer:    null,       // setInterval ID（30s 自动保存）
-  saveInProgress:   false,      // 防并发保存
-};
+{
+  el, header, viewHd, editHd,    // DOM 引用
+  bannerEl, body, titleEl, ...   // DOM 引用
+  filePath, fileName, pdfObjUrl, // 当前已打开文件的状态
+  edit: {                        // 编辑器状态
+    active, filePath, fileName,
+    lastSavedContent,            // 上次成功保存时的内容（用于计算 patch）
+    serverMtime,                 // 上次保存后服务端返回的 mtime（冲突检测）
+    autoSaveTimer,               // setInterval ID（30s 自动保存）
+    saveInProgress,              // 防并发保存
+    treeWasVisible,              // 进入编辑前文件树是否可见（退出时恢复）
+  }
+}
+const paneLeft  = makePaneState(document.getElementById('pane-left'));
+const paneRight = makePaneState(document.getElementById('pane-right'));
 ```
 
-**进入编辑模式**（`enterEditMode(filePath, name, content, mtime)`）：
-1. 将文件头切换为"编辑模式" header（显示保存/取消按钮、保存状态）
-2. 将文件内容区替换为 `<textarea id="edit-textarea">`，内容填充磁盘文件原文
-3. 通过 WebSocket 发 `watch_file`，让服务端开始监听此文件变化
-4. 启动 30s 自动保存定时器
+所有文件操作函数（`openFile`、`enterEditMode`、`exitEditMode`、`saveFile`、`autoSave`、`handleConflict`）均以 `pane` 为第一参数，在对应 pane 内完成操作，两栏互不影响。
+
+**进入编辑模式**（`enterEditMode(pane, filePath, name, content, mtime)`）：
+1. 将该 pane header 切换为编辑模式（显示保存/取消按钮、保存状态）
+2. 将 pane body 替换为 `<textarea class="edit-textarea">`，内容填充磁盘文件原文
+3. `requestAnimationFrame(() => { ta.setSelectionRange(0,0); ta.scrollTop=0; ta.focus(); })` 确保光标归顶而非滚动到末尾
+4. 通过 WebSocket 发 `watch_file`，让服务端开始监听此文件变化
+5. 启动 30s 自动保存定时器
+6. 左栏进入编辑且右栏未开启时，自动隐藏文件树（`display:none`），让编辑区独占全宽
 
 **增量保存**（`saveFile(forceContent?)`）：
 ```
@@ -542,9 +566,12 @@ setTimeout(() => session.suppressPaths.delete(filePath), 200);   // 200ms 后移
 **客户端响应**：
 ```javascript
 else if (msg.type === 'file_changed') {
-  if (editState.active && msg.path === editState.filePath) {
-    showBanner('Claude 已修改此文件，建议保存后重新加载');
-  }
+  // 同时检查左右两栏，各自独立显示警告条
+  [paneLeft, paneRight].forEach(pane => {
+    if (pane.edit.active && msg.path === pane.edit.filePath) {
+      showBanner(pane, 'Claude 已修改此文件，建议保存后重新加载');
+    }
+  });
 }
 ```
 
@@ -557,9 +584,51 @@ else if (msg.type === 'file_changed') {
 | 用户选"重新加载" | 丢弃本地编辑，服务端内容覆盖 textarea，mtime 同步 |
 | 用户选"强制覆盖保存" | 发全量 content（无 mtime 校验），强制覆盖 |
 | Claude 修改用户未打开的文件 | 未建立 fs.watch，无影响 |
-| WS 断线重连 | auth_ok 后检测 editState.active，重发 watch_file 恢复监听 |
+| WS 断线重连 | auth_ok 后遍历两栏，各自重发 watch_file 恢复监听 |
 
-### 4.12 自制 Markdown 渲染器
+### 4.12 左右双栏文件浏览
+
+**设计目标**：同时打开两个文件并排阅读/编辑，通过拖拽手势分配左右空间。
+
+**布局**：`#file-content-area` 采用 flex 横排，内含三个子元素：
+- `#pane-left`（`flex:1`，始终可见）
+- `#pane-divider`（5px，`col-resize`，默认隐藏）
+- `#pane-right`（`flex:none; width:50%`，默认隐藏）
+
+**打开文件的三种方式**：
+
+| 操作 | 结果 |
+|------|------|
+| 点击文件树中的文件 | 在左栏打开（右栏未开启时左栏全宽） |
+| 拖拽文件到内容区左半边 | 在左栏打开 |
+| 拖拽文件到内容区右半边 | 自动唤起右栏，在右栏打开 |
+
+**拖拽判断逻辑**：
+```javascript
+fileContentArea.addEventListener('drop', e => {
+  const rect    = fileContentArea.getBoundingClientRect();
+  const isRight = e.clientX > rect.left + rect.width / 2;
+  if (isRight) {
+    if (paneRight.el.style.display === 'none') openRightPane();
+    openFile(paneRight, filePath, name);
+  } else {
+    openFile(paneLeft, filePath, name);
+  }
+});
+```
+
+**pane-divider 可拖动调整宽度**（只影响右栏宽度，左栏 `flex:1` 自动填满剩余空间）：
+```javascript
+// 向左拖 → delta 为正 → 右栏变宽
+const delta = paneDivStartX - e.clientX;
+paneRight.el.style.width = newW + 'px';
+```
+
+**关闭右栏**：点击右栏 header 中的 `✕` 按钮，`closeRightPane()` 清理编辑状态、释放 PDF Object URL、隐藏右栏和分隔条。
+
+**两栏编辑独立性**：banner、save-status、watch_file、autoSave 均按 pane 独立运作，互不干扰。
+
+### 4.13 自制 Markdown 渲染器
 
 项目没有引入 marked.js 等库，而是自己写了一个 `renderMarkdown()` 函数（约80行）。思路是用正则表达式依次替换各种 Markdown 语法：
 
