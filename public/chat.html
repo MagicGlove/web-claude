@@ -771,13 +771,21 @@ if (isMobile && term.textarea) {
   term.textarea.addEventListener('focus', () => term.textarea.blur());
 }
 
-// safeFit：fit 后若原本在底部则保持在底部，避免手机端 resize 时内容跳到顶部
-// 用 requestAnimationFrame 确保在 xterm 内部渲染完成后再滚动，解决时序问题
+// _atBottom：持续跟踪终端是否处于底部，由 onScroll 事件维护。
+// 不在 resize 时临时读取 buf.viewportY——xterm 在 resize 期间内部状态
+// 尚未同步完成，读值不可靠，是偶发性回滚的根因。
+let _atBottom = true;
+
+// safeFit：fit 后若之前在底部则恢复到底部。
+// scrollToBottom 立即调用 + RAF 双保险：
+//   立即调用：消除 fit 后 xterm 内部重排前的单帧内容闪烁；
+//   RAF：确保 xterm 内部渲染完成后再次滚到底，防止被后续渲染覆盖。
 function safeFit() {
-  const buf = term.buffer.active;
-  const nearBottom = (buf.length - buf.viewportY - term.rows) <= 3;
   fitAddon.fit();
-  if (nearBottom) requestAnimationFrame(() => term.scrollToBottom());
+  if (_atBottom) {
+    term.scrollToBottom();
+    requestAnimationFrame(() => term.scrollToBottom());
+  }
 }
 
 // ── 终端 Ctrl+C / Ctrl+V 处理 ─────────────────────────────────────────────────
@@ -1067,8 +1075,8 @@ const scrollBottomBtn = document.getElementById('scroll-bottom-btn');
 
 term.onScroll(viewportY => {
   const buf = term.buffer.active;
-  const atBottom = viewportY >= buf.length - term.rows;
-  scrollBottomBtn.classList.toggle('visible', !atBottom);
+  _atBottom = viewportY >= buf.length - term.rows;
+  scrollBottomBtn.classList.toggle('visible', !_atBottom);
 });
 
 scrollBottomBtn.addEventListener('click', () => {
