@@ -275,6 +275,13 @@ body（flex 竖排）
 
 **`flex: 1`** 是 CSS Flexbox 的属性，意思是"占据父容器的全部剩余空间"。终端区域、文件内容区域都用了这个，所以能自动填满屏幕。
 
+> **注意**：聊天视图中，`#terminal-wrap` 外套了一层 `#chat-term-wrap`（`position: relative`），用于定位"滚到最新消息"浮动按钮（`#scroll-bottom-btn`）。实际布局为：
+> ```
+> ├── #chat-term-wrap（flex:1，终端容器，position:relative）
+> │   ├── #terminal-wrap（xterm.js 挂载点，100% 宽高）
+> │   └── #scroll-bottom-btn（右下角浮动按钮，内容未到底时出现）
+> ```
+
 ### 4.4 终端特殊按键处理
 
 xterm.js 默认把 Ctrl+C 当作 SIGINT（中断信号）发给 PTY，导致用户无法用 Ctrl+C 复制终端里的文字，Ctrl+V 也无法粘贴剪贴板内容。通过 `attachCustomKeyEventHandler` 拦截，在应用层做分流：
@@ -628,7 +635,91 @@ paneRight.el.style.width = newW + 'px';
 
 **两栏编辑独立性**：banner、save-status、watch_file、autoSave 均按 pane 独立运作，互不干扰。
 
-### 4.13 自制 Markdown 渲染器
+### 4.13 手机端兼容性处理
+
+手机端与桌面端的核心差异是"软键盘"：弹出/收起时布局高度变化，会引发一系列连锁问题。本节记录所有针对手机端的修复。
+
+#### 问题一：触摸终端区域弹出软键盘
+
+**根因**：xterm.js 在 `open()` 后会创建一个隐藏的 `<textarea>`，用于捕获键盘输入。手机端触摸终端时，xterm.js 自动 focus 这个 textarea，浏览器随即弹出软键盘，布局 resize，终端内容跳位。
+
+**修复**：
+```javascript
+// 检测移动设备
+const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+// Terminal 构造时设置 disableStdin，禁止 xterm 处理键盘输入
+const term = new Terminal({ disableStdin: isMobile, ... });
+
+// term.open() 后，直接拦截 xterm 内部 textarea 的 focus 事件
+if (isMobile && term.textarea) {
+  term.textarea.setAttribute('inputmode', 'none'); // 提示浏览器不需要软键盘
+  term.textarea.addEventListener('focus', () => term.textarea.blur()); // 双重保障
+}
+```
+
+`disableStdin` 只控制键盘输入处理，不一定阻止 textarea 获焦，因此结合 `focus→blur` 双重拦截。桌面端 `isMobile = false`，两者均不生效，Ctrl+C/V 等自定义键盘处理不受影响。
+
+#### 问题二：点击工具栏按钮弹出软键盘
+
+**根因**：工具栏点击事件末尾调用了 `inputEl.focus({ preventScroll: true })`，这会让浏览器 focus 底部输入框，手机端随即弹出软键盘，触发布局 resize，终端滚动条跳回顶部。
+
+**修复**：工具栏按钮（↑↓↵ 等）主要用于导航操作，不需要键盘，去掉 `inputEl.focus()` 调用：
+```javascript
+document.getElementById('toolbar').addEventListener('click', e => {
+  const btn = e.target.closest('[data-key],[data-text]');
+  if (!btn || !connected) return;
+  // ... 发送按键
+  // 不再调用 inputEl.focus()
+});
+```
+
+#### 问题三：发送按钮需要点击两次
+
+**根因**：手机端点击发送按钮时，浏览器先触发 `mousedown`，此时 `#input` 失焦、软键盘收起、布局上移，按钮位置随之移动，浏览器判断手指抬起点不再命中按钮，第一次 `click` 被丢弃，需要再点一次。
+
+**修复**：在 `mousedown` 时调用 `preventDefault()`，阻止 `#input` 失焦（输入框保持焦点 → 软键盘不收起 → 按钮不移位 → `click` 正常触发）：
+```javascript
+sendBtn.addEventListener('mousedown', e => e.preventDefault());
+sendBtn.addEventListener('click', sendText);
+```
+副作用：发送后软键盘保持打开，用户可以直接继续输入下一条消息，体验更流畅。
+
+#### 问题四：软键盘弹出/收起时终端内容滚回顶部
+
+**根因一（时序）**：原来用 `window.resize` 触发 `fitAddon.fit()`，但 `resize` 事件触发时 CSS 布局可能尚未计算完成，`fitAddon.fit()` 读到的是旧容器尺寸，实际无效。CSS 更新后终端容器变小，但 xterm canvas 仍是旧尺寸，容器从顶部裁剪 canvas，视觉上显示的是内容顶部，看起来像"滚到顶部"。
+
+**根因二（渲染时序）**：`fitAddon.fit()` 调用 `terminal.resize()` 后，xterm 内部还有渲染工作未完成，此时立即调用 `term.scrollToBottom()` 可能被后续渲染覆盖，导致滚动无效。
+
+**修复**：
+```javascript
+// 1. 用 ResizeObserver 替代 window.resize
+//    ResizeObserver 在 CSS 布局完成后才触发，保证读到正确的新尺寸
+let _wsResizeTimer;
+new ResizeObserver(() => {
+  safeFit();                            // 立即 fit（不再有时序问题）
+  clearTimeout(_wsResizeTimer);
+  _wsResizeTimer = setTimeout(() => {  // ws 通知 debounce，避免频繁发包
+    const { cols, rows } = term;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+  }, 300);
+}).observe(document.getElementById('chat-term-wrap'));
+
+// 2. scrollToBottom 用 requestAnimationFrame 延后一帧
+//    确保 xterm 内部渲染完成后再滚动
+function safeFit() {
+  const buf = term.buffer.active;
+  const nearBottom = (buf.length - buf.viewportY - term.rows) <= 3;
+  fitAddon.fit();
+  if (nearBottom) requestAnimationFrame(() => term.scrollToBottom());
+}
+```
+
+`ResizeObserver` 同时覆盖了桌面端窗口缩放、字体大小调整、视图切换等所有容器尺寸变化场景，比 `window.resize` 更可靠。
+
+---
+
+### 4.14 自制 Markdown 渲染器
 
 项目没有引入 marked.js 等库，而是自己写了一个 `renderMarkdown()` 函数（约80行）。思路是用正则表达式依次替换各种 Markdown 语法：
 

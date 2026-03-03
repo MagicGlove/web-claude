@@ -125,11 +125,41 @@
       overflow: hidden;
     }
 
-    #terminal-wrap {
+    #chat-term-wrap {
       flex: 1;
       min-height: 0;
+      position: relative;
+    }
+
+    #terminal-wrap {
+      width: 100%;
+      height: 100%;
       background: var(--bg3);
     }
+
+    /* 滚动到底部浮动按钮 */
+    #scroll-bottom-btn {
+      position: absolute;
+      bottom: 10px;
+      right: 14px;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: rgba(36, 40, 59, 0.92);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: none;
+      z-index: 50;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,.55);
+      transition: background .12s, border-color .12s;
+      padding: 0;
+    }
+    #scroll-bottom-btn:hover { background: #2e3354; border-color: var(--accent); }
+    #scroll-bottom-btn.visible { display: flex; }
 
     /* ── Toolbar ─────────────────────────────────────────────────────────────── */
     #toolbar {
@@ -577,7 +607,10 @@
 
 <!-- ── Chat View ─────────────────────────────────────────────────────────────── -->
 <div id="view-chat">
-  <div id="terminal-wrap"></div>
+  <div id="chat-term-wrap">
+    <div id="terminal-wrap"></div>
+    <button id="scroll-bottom-btn" title="滚到最新消息">↓</button>
+  </div>
 
   <div id="toolbar">
     <button class="tbtn" data-key="up"        title="方向键上">↑</button>
@@ -592,6 +625,7 @@
     <button class="tbtn" data-text="3"        title="发送 3">3</button>
     <button class="tbtn red" data-key="ctrl_c" title="中断 Ctrl+C">⊘ 中断</button>
     <button class="tbtn red" data-key="ctrl_d" title="退出 Ctrl+D">⏏ 退出</button>
+    <button class="tbtn" id="clear-display-btn" title="清除页面显示（不影响 Claude 上下文，减少手机卡顿）">清显示</button>
   </div>
 
   <div id="input-area">
@@ -688,9 +722,13 @@ const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 20];
 let fontIdx = FONT_SIZES.indexOf(parseInt(localStorage.getItem('cc_font_size') || '15'));
 if (fontIdx < 0) fontIdx = 3;
 
+// 手机端禁止 xterm 内部 textarea 抢焦点（否则触摸终端滚动时会弹出输入法）
+const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 const term = new Terminal({
   fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, 'Courier New', monospace",
   fontSize: FONT_SIZES[fontIdx],
+  disableStdin: isMobile,
   theme: {
     background:      '#1e2030',
     foreground:      '#c0caf5',
@@ -724,6 +762,23 @@ const fitAddon = new FitAddon.FitAddon();
 term.loadAddon(fitAddon);
 term.open(document.getElementById('terminal-wrap'));
 fitAddon.fit();
+
+// 手机端：xterm 内部 textarea 触摸时会获焦并弹出输入法（disableStdin 仅禁止
+// 键盘输入处理，不阻止 focus）。在 open() 后立即拦截其 focus 事件并 blur，
+// 同时设 inputmode="none" 告知浏览器此处不需要软键盘。
+if (isMobile && term.textarea) {
+  term.textarea.setAttribute('inputmode', 'none');
+  term.textarea.addEventListener('focus', () => term.textarea.blur());
+}
+
+// safeFit：fit 后若原本在底部则保持在底部，避免手机端 resize 时内容跳到顶部
+// 用 requestAnimationFrame 确保在 xterm 内部渲染完成后再滚动，解决时序问题
+function safeFit() {
+  const buf = term.buffer.active;
+  const nearBottom = (buf.length - buf.viewportY - term.rows) <= 3;
+  fitAddon.fit();
+  if (nearBottom) requestAnimationFrame(() => term.scrollToBottom());
+}
 
 // ── 终端 Ctrl+C / Ctrl+V 处理 ─────────────────────────────────────────────────
 term.attachCustomKeyEventHandler(evt => {
@@ -765,7 +820,7 @@ function applyFontSize() {
   document.getElementById('font-size-label').textContent = sz + 'px';
   localStorage.setItem('cc_font_size', sz);
   document.documentElement.style.setProperty('--file-font-size', sz + 'px');
-  setTimeout(() => { fitAddon.fit(); sendResize(); }, 50);
+  setTimeout(() => { sendResize(); }, 50);
 }
 
 document.getElementById('font-inc').addEventListener('click', () => {
@@ -814,7 +869,7 @@ function switchView(view) {
     viewFiles.style.display = 'none';
     tabChat.classList.add('active');
     tabFiles.classList.remove('active');
-    setTimeout(() => { fitAddon.fit(); sendResize(); }, 50);
+    setTimeout(() => { sendResize(); }, 50);
   } else {
     viewChat.style.display  = 'none';
     viewFiles.style.display = 'flex';
@@ -846,7 +901,7 @@ const statusText = document.getElementById('status-text');
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
 function sendResize() {
-  fitAddon.fit();
+  safeFit();
   const { cols, rows } = term;
   if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: 'resize', cols, rows }));
@@ -961,7 +1016,8 @@ document.getElementById('toolbar').addEventListener('click', e => {
   } else {
     ws.send(JSON.stringify({ type: 'key', key: btn.dataset.key }));
   }
-  inputEl.focus();
+  // 不再调用 inputEl.focus()：手机端会弹出输入法并触发布局 resize，
+  // 导致终端滚回顶部；工具栏按钮（↑↓↵）主要用于导航操作，不需要键盘。
 });
 
 inputEl.addEventListener('keydown', e => {
@@ -974,6 +1030,9 @@ inputEl.addEventListener('keydown', e => {
   }
 });
 inputEl.addEventListener('input', autoResize);
+// mousedown preventDefault：阻止焦点离开输入框（防止键盘收起导致布局偏移）
+// 移动端：第一次点击不再因按钮移位而丢失，一次点击即可发送
+sendBtn.addEventListener('mousedown', e => e.preventDefault());
 sendBtn.addEventListener('click', sendText);
 
 function autoResize() {
@@ -986,9 +1045,40 @@ document.getElementById('logout-btn').addEventListener('click', () => {
   location.href = '/';
 });
 
-window.addEventListener('resize', () => {
-  fitAddon.fit();
-  sendResize();
+// 用 ResizeObserver 替代 window.resize：
+// window.resize 触发时 CSS 布局可能尚未完成，fitAddon.fit() 读到旧尺寸无效；
+// ResizeObserver 在 CSS 布局完成后触发，能保证读到正确的新尺寸。
+// 键盘弹出/收起、字体调整、窗口缩放均可精确响应。
+let _wsResizeTimer;
+new ResizeObserver(() => {
+  safeFit();
+  clearTimeout(_wsResizeTimer);
+  _wsResizeTimer = setTimeout(() => {
+    const { cols, rows } = term;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    }
+  }, 300);
+}).observe(document.getElementById('chat-term-wrap'));
+
+// ── 滚动到底部按钮 ────────────────────────────────────────────────────────────
+
+const scrollBottomBtn = document.getElementById('scroll-bottom-btn');
+
+term.onScroll(viewportY => {
+  const buf = term.buffer.active;
+  const atBottom = viewportY >= buf.length - term.rows;
+  scrollBottomBtn.classList.toggle('visible', !atBottom);
+});
+
+scrollBottomBtn.addEventListener('click', () => {
+  term.scrollToBottom();
+});
+
+// ── 清显示按钮（只清页面显示，不影响 Claude 上下文）────────────────────────────
+
+document.getElementById('clear-display-btn').addEventListener('click', () => {
+  term.clear();
 });
 
 // ── Resize handle drag (tree ↔ content) ──────────────────────────────────────
