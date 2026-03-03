@@ -771,18 +771,22 @@ if (isMobile && term.textarea) {
   term.textarea.addEventListener('focus', () => term.textarea.blur());
 }
 
-// _atBottom：持续跟踪终端是否处于底部，由 onScroll 事件维护。
-// 不在 resize 时临时读取 buf.viewportY——xterm 在 resize 期间内部状态
-// 尚未同步完成，读值不可靠，是偶发性回滚的根因。
+// _atBottom：由 term.onScroll 持续维护，记录用户是否处于底部。
+// _inFit：fitAddon.fit() 执行期间置 true，屏蔽 xterm 内部 resize 触发的
+//   杂散 onScroll 事件——这些事件携带过渡期错误的 viewportY（如 0），
+//   会把 _atBottom 错误地置为 false，导致后续 scrollToBottom 被跳过。
 let _atBottom = true;
+let _inFit   = false;
 
-// safeFit：fit 后若之前在底部则恢复到底部。
-// scrollToBottom 立即调用 + RAF 双保险：
-//   立即调用：消除 fit 后 xterm 内部重排前的单帧内容闪烁；
-//   RAF：确保 xterm 内部渲染完成后再次滚到底，防止被后续渲染覆盖。
+// safeFit：resize 后若之前在底部则恢复到底部。
+// 关键：先快照 shouldScroll，再调 fit（fit 内部会触发 onScroll 污染 _atBottom）。
+// scrollToBottom 立即 + RAF 双保险：立即调用修正 canvas，RAF 防止被后续渲染覆盖。
 function safeFit() {
+  const shouldScroll = _atBottom;   // 在 fit 修改 _atBottom 之前先快照
+  _inFit = true;
   fitAddon.fit();
-  if (_atBottom) {
+  _inFit = false;
+  if (shouldScroll) {
     term.scrollToBottom();
     requestAnimationFrame(() => term.scrollToBottom());
   }
@@ -1038,8 +1042,13 @@ inputEl.addEventListener('keydown', e => {
   }
 });
 inputEl.addEventListener('input', autoResize);
-// mousedown preventDefault：阻止焦点离开输入框（防止键盘收起导致布局偏移）
-// 移动端：第一次点击不再因按钮移位而丢失，一次点击即可发送
+// 移动端：焦点在 touchstart 阶段就已转移，mousedown.preventDefault() 太晚。
+// 改为在 touchstart 直接发送并阻止默认行为（同时阻止后续 click，避免重复触发）。
+sendBtn.addEventListener('touchstart', e => {
+  e.preventDefault();
+  sendText();
+}, { passive: false });
+// 桌面端：mousedown 阻止失焦，click 触发发送（touchstart 不会在桌面触发）。
 sendBtn.addEventListener('mousedown', e => e.preventDefault());
 sendBtn.addEventListener('click', sendText);
 
@@ -1074,6 +1083,7 @@ new ResizeObserver(() => {
 const scrollBottomBtn = document.getElementById('scroll-bottom-btn');
 
 term.onScroll(viewportY => {
+  if (_inFit) return;   // 忽略 fitAddon.fit() 期间的杂散事件
   const buf = term.buffer.active;
   _atBottom = viewportY >= buf.length - term.rows;
   scrollBottomBtn.classList.toggle('visible', !_atBottom);
